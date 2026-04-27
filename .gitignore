@@ -1,0 +1,30 @@
+# Секреты
+.env
+
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# SSL-сертификаты
+nginx/certs/*.crt
+nginx/certs/*.key
+nginx/certs/*.pem
+
+# Логи
+*.log
+
+# IDE
+.idea/
+.vscode/
