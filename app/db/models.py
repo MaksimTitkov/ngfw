@@ -1,7 +1,8 @@
-from sqlalchemy import Column, String, Integer, JSON, Boolean, ForeignKey, BigInteger, DateTime, Index
+from sqlalchemy import Column, String, Integer, JSON, Boolean, ForeignKey, BigInteger, DateTime, Index, Text
 from sqlalchemy.sql import func
 from app.db.session import Base
 from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
 
 
 class Folder(Base):
@@ -87,4 +88,25 @@ class CachedLog(Base):
         Index('ix_clog_src_ip',       'src_ip'),
         Index('ix_clog_dst_ip',       'dst_ip'),
         Index('ix_clog_action',       'action'),
+    )
+
+
+class ChangeLog(Base):
+    """Audit trail of every create/update/delete action in NGFW Manager."""
+    __tablename__ = "change_log"
+
+    id             = Column(BigInteger, primary_key=True, autoincrement=True)
+    ts             = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    username       = Column(String(128), nullable=False)
+    device_group_id = Column(String(128), nullable=True)
+    entity_type    = Column(String(64),  nullable=False)   # rule / nat_rule / object / folder
+    entity_id      = Column(String(256), nullable=True)    # ext_id or local id
+    entity_name    = Column(String(512), nullable=True)
+    action         = Column(String(32),  nullable=False)   # create / update / delete / toggle / reorder
+    detail         = Column(Text,        nullable=True)    # human-readable summary
+
+    __table_args__ = (
+        Index('ix_chlog_ts',     'ts'),
+        Index('ix_chlog_device', 'device_group_id'),
+        Index('ix_chlog_user',   'username'),
     )

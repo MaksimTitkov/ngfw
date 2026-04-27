@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete as sa_delete
 from sqlalchemy.orm import selectinload
 from app.db.session import get_db
-from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog
+from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog
 from app.services.deploy_service import DeployService
 from app.services.analyzer_service import run_analysis
 from app.services.sync_service import SyncService
@@ -36,6 +36,29 @@ def get_current_user(request: Request):
     if not user:
         return None
     return user
+
+
+async def _log_change(
+    db,
+    user: dict,
+    action: str,
+    entity_type: str,
+    entity_name: str = "",
+    entity_id: str = "",
+    device_group_id: str = "",
+    detail: str = "",
+):
+    entry = ChangeLog(
+        username        = user.get("username", "unknown"),
+        device_group_id = device_group_id or None,
+        entity_type     = entity_type,
+        entity_id       = entity_id or None,
+        entity_name     = entity_name or None,
+        action          = action,
+        detail          = detail or None,
+    )
+    db.add(entry)
+
 
 # --- РњРћР”Р•Р›Р Р”РђРќРќР«РҐ (Pydantic) ---
 class AuthRequest(BaseModel):
@@ -481,6 +504,8 @@ async def update_rule_endpoint(request: Request, data: RuleUpdateRequest, db: As
             rule.is_modified = False
             rule.modified_at = None
 
+        await _log_change(db, user, "update", "rule", rule.name, rule.ext_id,
+                          device_group_id or "", f"Action: {data.action}")
         await db.commit()
         return JSONResponse({"status": "ok"})
     except Exception as e:
@@ -506,6 +531,11 @@ async def toggle_rule(request: Request, data: ToggleRequest, db: AsyncSession = 
         await client.update_rule(rule.ext_id, {"id": rule.ext_id, "enabled": data.enabled})
         if rule.data:
             rule.data = {**rule.data, "enabled": data.enabled}
+        state = "enabled" if data.enabled else "disabled"
+        folder = await db.get(Folder, rule.folder_id)
+        dg = folder.device_group_id if folder else ""
+        await _log_change(db, user, "toggle", "rule", rule.name, rule.ext_id, dg,
+                          f"Set {state}")
         await db.commit()
         return JSONResponse({"status": "ok"})
     except Exception as e:
@@ -581,6 +611,9 @@ async def delete_rules(request: Request, data: DeleteRequest, db: AsyncSession =
     rules = (await db.execute(stmt)).scalars().all()
     for rule in rules:
         await client.delete_rule(rule.ext_id)
+        folder = await db.get(Folder, rule.folder_id)
+        dg = folder.device_group_id if folder else ""
+        await _log_change(db, user, "delete", "rule", rule.name, rule.ext_id, dg)
         await db.delete(rule)
     await client.close()
     await db.commit()
@@ -795,6 +828,8 @@ async def create_object_endpoint(request: Request, data: ObjectCreateRequest, db
 
         db.add(CachedObject(ext_id=ext_id, name=name, type=type_lbl, category=cat,
                             device_group_id=dg_id, data=res))
+        await _log_change(db, user, "create", "object", name, ext_id, dg_id,
+                          f"Type: {type_lbl}")
         await db.commit()
         return JSONResponse({"status": "ok", "id": ext_id, "name": name})
     except Exception as e:
@@ -820,6 +855,8 @@ async def delete_objects_endpoint(request: Request, data: ObjectDeleteRequest, d
         for obj in objects:
             ok = await client.delete_object(obj.type, obj.ext_id)
             if ok:
+                await _log_change(db, user, "delete", "object", obj.name, obj.ext_id,
+                                  obj.device_group_id or "")
                 await db.delete(obj)
             else:
                 failed.append(obj.name)
@@ -1126,7 +1163,7 @@ async def create_nat_rule_endpoint(request: Request, data: NatCreateRequest, db:
         stmt = select(func.max(CachedNatRule.folder_sort_order)).where(CachedNatRule.folder_id == data.folder_id)
         max_pos = (await db.execute(stmt)).scalar() or 0
 
-        db.add(CachedNatRule(
+        nat_entry = CachedNatRule(
             id=str(uuid.uuid4()),
             ext_id=ext_id,
             name=data.name,
@@ -1134,7 +1171,10 @@ async def create_nat_rule_endpoint(request: Request, data: NatCreateRequest, db:
             folder_sort_order=max_pos + 1,
             device_group_id=folder.device_group_id,
             data={**api_payload, "id": ext_id},
-        ))
+        )
+        db.add(nat_entry)
+        await _log_change(db, user, "create", "nat_rule", data.name, ext_id,
+                          folder.device_group_id)
         await db.commit()
         return JSONResponse({"status": "ok"})
     except Exception as e:
@@ -1156,6 +1196,8 @@ async def delete_nat_rules(request: Request, data: NatDeleteRequest, db: AsyncSe
         rules = (await db.execute(stmt)).scalars().all()
         for rule in rules:
             await client.delete_nat_rule(rule.ext_id)
+            await _log_change(db, user, "delete", "nat_rule", rule.name, rule.ext_id,
+                              rule.device_group_id or "")
             await db.delete(rule)
         await db.commit()
         return JSONResponse({"status": "ok"})
@@ -1193,6 +1235,9 @@ async def toggle_nat_rule(request: Request, data: NatToggleRequest, db: AsyncSes
         await client.update_rule(rule.ext_id, {"id": rule.ext_id, "enabled": data.enabled})
         if rule.data:
             rule.data = {**rule.data, "enabled": data.enabled}
+        state = "enabled" if data.enabled else "disabled"
+        await _log_change(db, user, "toggle", "nat_rule", rule.name, rule.ext_id,
+                          rule.device_group_id or "", f"Set {state}")
         await db.commit()
         return JSONResponse({"status": "ok"})
     except Exception as e:
@@ -1737,7 +1782,7 @@ async def list_policy_rules(request: Request, data: PolicyListRequest):
 
 
 @router.post("/api/v1/policy/create")
-async def create_policy_rule(request: Request, data: PolicyCreateRequest):
+async def create_policy_rule(request: Request, data: PolicyCreateRequest, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
@@ -1752,6 +1797,11 @@ async def create_policy_rule(request: Request, data: PolicyCreateRequest):
             result = await client.create_pbr_rule(data.payload)
         else:
             return JSONResponse({"status": "error", "message": f"Unknown tab: {data.tab}"}, status_code=400)
+        name = data.payload.get("name", "")
+        ext_id = (result or {}).get("id", "")
+        await _log_change(db, user, "create", f"policy_{data.tab}", name, ext_id,
+                          data.device_group_id, f"Tab: {data.tab}")
+        await db.commit()
         return JSONResponse({"status": "ok", "rule": result})
     except Exception as e:
         logger.error(f"Policy create ({data.tab}) failed: {e}")
@@ -1761,7 +1811,7 @@ async def create_policy_rule(request: Request, data: PolicyCreateRequest):
 
 
 @router.post("/api/v1/policy/delete")
-async def delete_policy_rules(request: Request, data: PolicyDeleteRequest):
+async def delete_policy_rules(request: Request, data: PolicyDeleteRequest, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
@@ -1778,8 +1828,12 @@ async def delete_policy_rules(request: Request, data: PolicyDeleteRequest):
                 ok = await client.delete_pbr_rule(rule_id)
             else:
                 ok = False
-            if not ok:
+            if ok:
+                await _log_change(db, user, "delete", f"policy_{data.tab}", rule_id, rule_id,
+                                  data.device_group_id, f"Tab: {data.tab}")
+            else:
                 failed.append(rule_id)
+        await db.commit()
         if failed:
             return JSONResponse({"status": "partial", "failed": failed})
         return JSONResponse({"status": "ok", "deleted": len(data.ids)})
@@ -2286,3 +2340,70 @@ async def run_analyzer(data: AnalyzerRequest, db: AsyncSession = Depends(get_db)
 
     result = run_analysis(rules_meta)
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Change Log
+# ---------------------------------------------------------------------------
+
+@router.get("/changelog", response_class=HTMLResponse)
+async def changelog_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    return templates.TemplateResponse("changelog.html", {
+        "request": request,
+        "user": user,
+        "selected_folder_id": None,
+        "current_device_id": None,
+        "tree": {},
+    })
+
+
+class ChangelogQueryRequest(BaseModel):
+    limit:           int = 100
+    offset:          int = 0
+    username:        Optional[str] = None
+    entity_type:     Optional[str] = None
+    action:          Optional[str] = None
+    device_group_id: Optional[str] = None
+    search:          Optional[str] = None
+
+
+@router.post("/api/v1/changelog/query")
+async def query_changelog(data: ChangelogQueryRequest, db: AsyncSession = Depends(get_db)):
+    stmt = select(ChangeLog).order_by(ChangeLog.ts.desc())
+    if data.username:
+        stmt = stmt.where(ChangeLog.username == data.username)
+    if data.entity_type:
+        stmt = stmt.where(ChangeLog.entity_type == data.entity_type)
+    if data.action:
+        stmt = stmt.where(ChangeLog.action == data.action)
+    if data.device_group_id:
+        stmt = stmt.where(ChangeLog.device_group_id == data.device_group_id)
+    if data.search:
+        like = f"%{data.search}%"
+        stmt = stmt.where(
+            ChangeLog.entity_name.ilike(like) | ChangeLog.detail.ilike(like)
+        )
+
+    total_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(total_stmt)).scalar() or 0
+
+    stmt = stmt.offset(data.offset).limit(data.limit)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    items = []
+    for r in rows:
+        items.append({
+            "id":             r.id,
+            "ts":             r.ts.isoformat() if r.ts else None,
+            "username":       r.username,
+            "device_group_id": r.device_group_id,
+            "entity_type":    r.entity_type,
+            "entity_id":      r.entity_id,
+            "entity_name":    r.entity_name,
+            "action":         r.action,
+            "detail":         r.detail,
+        })
+    return JSONResponse({"status": "ok", "total": total, "items": items})
