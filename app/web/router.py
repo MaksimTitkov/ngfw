@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends, Query, Form
+from fastapi import APIRouter, Request, Depends, Query, Form, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete as sa_delete
@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.db.session import get_db
 from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog
 from app.services.deploy_service import DeployService
+from app.services.analyzer_service import run_analysis
 from app.services.sync_service import SyncService
 from app.infrastructure.ngfw_client import NGFWClient
 from fastapi.templating import Jinja2Templates
@@ -2185,3 +2186,103 @@ async def set_timeouts_endpoint(request: Request, data: TimeoutsSetRequest):
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
     finally:
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Policy Analyzer
+# ---------------------------------------------------------------------------
+
+class AnalyzerRequest(BaseModel):
+    device_group_id: str
+    folder_id: Optional[str] = None
+
+
+@router.get("/analyzer", response_class=HTMLResponse)
+async def analyzer_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    meta_res = await db.execute(select(DeviceMeta))
+    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+
+    stmt = select(Folder).order_by(Folder.device_group_id, Folder.sort_order)
+    result = await db.execute(stmt)
+    all_folders = result.scalars().all()
+
+    # ORM tree for sidebar rendering
+    orm_tree: Dict[str, Any] = {}
+    for f in all_folders:
+        gid = f.device_group_id or "unknown"
+        if gid == "global":
+            continue
+        dev_name = device_names.get(gid, f"Device {gid[:8]}")
+        if gid not in orm_tree:
+            orm_tree[gid] = {"name": dev_name, "id": gid, "sections": {"pre": [], "post": [], "default": []}}
+        f.rules_count = 0
+        sec = f.section.lower() if f.section and f.section.lower() in ('pre', 'post', 'default') else 'pre'
+        orm_tree[gid]["sections"][sec].append(f)
+
+    # JSON-serialisable version for JS
+    js_tree: Dict[str, Any] = {}
+    for gid, info in orm_tree.items():
+        js_tree[gid] = {
+            "name": info["name"],
+            "sections": {
+                sec: [{"id": f.id, "name": f.name} for f in flist]
+                for sec, flist in info["sections"].items()
+            }
+        }
+
+    devices_list = [{"device_id": gid, "name": info["name"]} for gid, info in orm_tree.items()]
+
+    return templates.TemplateResponse("analyzer.html", {
+        "request": request,
+        "tree": orm_tree,
+        "js_tree": js_tree,
+        "devices": devices_list,
+        "user": user,
+        "selected_folder_id": None,
+        "current_device_id": None,
+    })
+
+
+@router.post("/api/v1/analyzer/run")
+async def run_analyzer(data: AnalyzerRequest, db: AsyncSession = Depends(get_db)):
+    # Collect folder IDs belonging to this device
+    folders_stmt = select(Folder).where(Folder.device_group_id == data.device_group_id)
+    fr = await db.execute(folders_stmt)
+    folders_list = fr.scalars().all()
+    folder_names: Dict[str, str] = {f.id: f.name for f in folders_list}
+    folder_section: Dict[str, str] = {f.id: (f.section or 'pre').lower() for f in folders_list}
+
+    target_folder_ids = [f.id for f in folders_list]
+    if data.folder_id:
+        if data.folder_id not in folder_names:
+            return JSONResponse({"error": "Folder not found"}, status_code=404)
+        target_folder_ids = [data.folder_id]
+
+    if not target_folder_ids:
+        return JSONResponse(run_analysis([]))
+
+    stmt = (
+        select(CachedRule)
+        .where(CachedRule.folder_id.in_(target_folder_ids))
+        .order_by(CachedRule.folder_sort_order)
+    )
+    rows = await db.execute(stmt)
+    rules = rows.scalars().all()
+
+    rules_meta = []
+    for r in rules:
+        rules_meta.append({
+            "id":             r.id,
+            "ext_id":         r.ext_id,
+            "name":           r.name,
+            "folder_name":    folder_names.get(r.folder_id, ""),
+            "device_group_id": data.device_group_id,
+            "data":           r.data or {},
+        })
+
+    result = run_analysis(rules_meta)
+    return JSONResponse(result)

@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+{% block title %}Policy Analyzer — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    <div class="app-main">
+
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-magnifying-glass-chart" style="color:#8b5cf6;margin-right:6px"></i>
+                Policy Analyzer
+            </span>
+            <div class="topbar-sep"></div>
+            <a href="/" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-layer-group"></i> Rules
+            </a>
+            <a href="/policy" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-shield-virus"></i> Policy
+            </a>
+        </div>
+
+        <div class="app-content" style="padding:20px">
+
+            {# ---- Control bar ---- #}
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px;
+                        background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
+                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">Device</label>
+                    <select id="selDevice" class="form-select form-select-sm"
+                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:13px"
+                            onchange="onDeviceChange()">
+                        <option value="">— Select device —</option>
+                        {% for d in devices %}
+                        <option value="{{ d.device_id }}">{{ d.name or d.device_id }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
+                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">Folder</label>
+                    <select id="selFolder" class="form-select form-select-sm"
+                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:13px"
+                            disabled>
+                        <option value="">All folders</option>
+                    </select>
+                </div>
+                <button class="btn btn-sm" id="btnRun"
+                        style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;border:none;padding:6px 20px;border-radius:6px;font-weight:600;font-size:13px"
+                        onclick="runAnalysis()" disabled>
+                    <i class="fas fa-play"></i> Analyze
+                </button>
+            </div>
+
+            {# ---- Summary cards ---- #}
+            <div id="summaryRow" style="display:none;gap:12px;flex-wrap:wrap;margin-bottom:20px" class="d-flex">
+                <div class="stat-card">
+                    <div class="stat-val" id="statTotal">—</div>
+                    <div class="stat-label">Total Rules</div>
+                </div>
+                <div class="stat-card" style="border-color:rgba(239,68,68,.3)">
+                    <div class="stat-val" style="color:#ef4444" id="statIssues">—</div>
+                    <div class="stat-label">Issues Found</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-val" style="color:#64748b" id="statDisabled">—</div>
+                    <div class="stat-label">Disabled</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-val" style="color:#f59e0b" id="statBroad">—</div>
+                    <div class="stat-label">Too Broad</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-val" style="color:#ef4444" id="statShadow">—</div>
+                    <div class="stat-label">Shadowed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-val" style="color:#8b5cf6" id="statRedundant">—</div>
+                    <div class="stat-label">Redundant</div>
+                </div>
+            </div>
+
+            {# ---- Spinner ---- #}
+            <div id="spinner" style="display:none;text-align:center;padding:60px;color:#475569">
+                <i class="fas fa-circle-notch fa-spin" style="font-size:28px;margin-bottom:10px;display:block"></i>
+                Analyzing rules…
+            </div>
+
+            {# ---- Results sections ---- #}
+            <div id="resultsArea" style="display:none">
+
+                {# Disabled #}
+                <div id="secDisabled" class="analysis-section" style="border-left-color:#64748b;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-ban" style="color:#64748b"></i>
+                        <span>Disabled Rules</span>
+                        <span class="as-count" id="cntDisabled">0</span>
+                    </div>
+                    <div class="as-desc">Rules with <code>enabled = false</code>. They consume position in the ruleset but never match traffic.</div>
+                    <table class="issue-table">
+                        <thead><tr><th>Name</th><th>Folder</th><th>Device</th><th></th></tr></thead>
+                        <tbody id="tbDisabled"></tbody>
+                    </table>
+                </div>
+
+                {# Too broad #}
+                <div id="secBroad" class="analysis-section" style="border-left-color:#f59e0b;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-expand" style="color:#f59e0b"></i>
+                        <span>Too Broad (Any/Any Allow)</span>
+                        <span class="as-count" style="background:rgba(245,158,11,.15);color:#f59e0b" id="cntBroad">0</span>
+                    </div>
+                    <div class="as-desc">Enabled ALLOW rules with Source = Any <b>and</b> Destination = Any. These rules permit all traffic through.</div>
+                    <table class="issue-table">
+                        <thead><tr><th>Name</th><th>Folder</th><th>Device</th><th></th></tr></thead>
+                        <tbody id="tbBroad"></tbody>
+                    </table>
+                </div>
+
+                {# Shadowed #}
+                <div id="secShadow" class="analysis-section" style="border-left-color:#ef4444;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-layer-group" style="color:#ef4444"></i>
+                        <span>Shadowed Rules</span>
+                        <span class="as-count" style="background:rgba(239,68,68,.15);color:#ef4444" id="cntShadow">0</span>
+                    </div>
+                    <div class="as-desc">Rules that are fully covered by an earlier rule — traffic never reaches them. May indicate incorrect rule order or duplicates.</div>
+                    <table class="issue-table">
+                        <thead><tr><th>Rule</th><th>Shadowed by</th><th>Reason</th><th>Folder</th><th></th></tr></thead>
+                        <tbody id="tbShadow"></tbody>
+                    </table>
+                </div>
+
+                {# Redundant #}
+                <div id="secRedundant" class="analysis-section" style="border-left-color:#8b5cf6;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-copy" style="color:#8b5cf6"></i>
+                        <span>Potentially Redundant</span>
+                        <span class="as-count" style="background:rgba(139,92,246,.15);color:#8b5cf6" id="cntRedundant">0</span>
+                    </div>
+                    <div class="as-desc">Neighbouring rules with the same action, zones and service but different source addresses — candidates for merging into a single rule.</div>
+                    <table class="issue-table">
+                        <thead><tr><th>Rule A</th><th>Rule B</th><th>Reason</th><th>Folder</th><th></th></tr></thead>
+                        <tbody id="tbRedundant"></tbody>
+                    </table>
+                </div>
+
+                {# All clear #}
+                <div id="allClear" style="display:none;text-align:center;padding:60px 0;color:#22c55e">
+                    <i class="fas fa-circle-check" style="font-size:40px;display:block;margin-bottom:12px"></i>
+                    <div style="font-size:18px;font-weight:700">No issues found</div>
+                    <div style="font-size:13px;color:#475569;margin-top:4px">All analyzed rules look clean.</div>
+                </div>
+
+            </div>{# /resultsArea #}
+
+        </div>{# /app-content #}
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+<style>
+.stat-card {
+    background:#1e293b;
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:10px;
+    padding:14px 20px;
+    min-width:110px;
+    text-align:center;
+    flex:1;
+}
+.stat-val { font-size:26px;font-weight:800;line-height:1 }
+.stat-label { font-size:11px;color:#64748b;font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:.04em }
+
+.analysis-section {
+    background:#1e293b;
+    border:1px solid rgba(255,255,255,.06);
+    border-left:3px solid #3b82f6;
+    border-radius:10px;
+    padding:16px 20px;
+    margin-bottom:16px;
+}
+.as-header {
+    display:flex;align-items:center;gap:8px;
+    font-size:14px;font-weight:700;color:#e2e8f0;
+    margin-bottom:6px;
+}
+.as-count {
+    margin-left:auto;
+    background:rgba(100,116,139,.15);color:#94a3b8;
+    border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;
+}
+.as-desc { font-size:12px;color:#64748b;margin-bottom:12px }
+
+.issue-table { width:100%;border-collapse:collapse;font-size:12px }
+.issue-table th {
+    text-align:left;padding:6px 8px;
+    color:#64748b;font-weight:600;font-size:11px;text-transform:uppercase;
+    border-bottom:1px solid rgba(255,255,255,.06)
+}
+.issue-table td {
+    padding:7px 8px;
+    border-bottom:1px solid rgba(255,255,255,.04);
+    color:#cbd5e1;vertical-align:middle
+}
+.issue-table tr:last-child td { border-bottom:none }
+.issue-table tr:hover td { background:rgba(255,255,255,.03) }
+
+.rule-link {
+    color:#60a5fa;text-decoration:none;font-weight:600;
+}
+.rule-link:hover { color:#93c5fd;text-decoration:underline }
+
+.tag-rule {
+    display:inline-block;background:rgba(59,130,246,.15);color:#60a5fa;
+    border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;white-space:nowrap
+}
+.tag-shadow { background:rgba(239,68,68,.12);color:#fca5a5 }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TREE = {{ js_tree | tojson }};
+let _lastResult = null;
+
+// ---- populate folder dropdown when device changes ----
+function onDeviceChange() {
+    const devId = document.getElementById('selDevice').value;
+    const selFolder = document.getElementById('selFolder');
+    const btnRun = document.getElementById('btnRun');
+
+    selFolder.innerHTML = '<option value="">All folders</option>';
+    selFolder.disabled = true;
+    btnRun.disabled = !devId;
+
+    if (!devId || !TREE[devId]) return;
+
+    const sections = TREE[devId].sections;
+    ['pre','default','post'].forEach(sec => {
+        if (!sections[sec]) return;
+        sections[sec].forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.id;
+            opt.textContent = `[${sec.toUpperCase()}] ${f.name}`;
+            selFolder.appendChild(opt);
+        });
+    });
+    selFolder.disabled = false;
+}
+
+// ---- run analysis ----
+async function runAnalysis() {
+    const devId = document.getElementById('selDevice').value;
+    const folderId = document.getElementById('selFolder').value;
+    if (!devId) return;
+
+    document.getElementById('summaryRow').style.display = 'none';
+    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('allClear').style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/v1/analyzer/run', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({device_group_id: devId, folder_id: folderId || null})
+        });
+        const data = await resp.json();
+        _lastResult = data;
+        renderResults(data);
+    } catch(e) {
+        showToast('Ошибка анализа: ' + e, 'danger');
+    } finally {
+        document.getElementById('spinner').style.display = 'none';
+    }
+}
+
+function renderResults(data) {
+    // Summary
+    document.getElementById('statTotal').textContent    = data.total_rules ?? '—';
+    document.getElementById('statIssues').textContent   = data.total_issues ?? '—';
+    document.getElementById('statDisabled').textContent = data.disabled?.length ?? 0;
+    document.getElementById('statBroad').textContent    = data.too_broad?.length ?? 0;
+    document.getElementById('statShadow').textContent   = data.shadowed?.length ?? 0;
+    document.getElementById('statRedundant').textContent= data.redundant?.length ?? 0;
+    document.getElementById('summaryRow').style.display = '';
+
+    document.getElementById('resultsArea').style.display = '';
+
+    const devId = document.getElementById('selDevice').value;
+
+    renderDisabled(data.disabled || []);
+    renderBroad(data.too_broad || []);
+    renderShadowed(data.shadowed || [], devId);
+    renderRedundant(data.redundant || []);
+
+    document.getElementById('allClear').style.display =
+        (data.total_issues === 0) ? '' : 'none';
+}
+
+function ruleLink(name, extId, devId) {
+    const href = extId ? `/?device_group_id=${encodeURIComponent(devId)}#rule_${extId}` : '#';
+    return `<a class="rule-link" href="${href}" title="Open rule">${escHtml(name)}</a>`;
+}
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function folderBadge(name) {
+    return name ? `<span style="font-size:11px;color:#475569">${escHtml(name)}</span>` : '';
+}
+
+function renderDisabled(rows) {
+    const sec = document.getElementById('secDisabled');
+    const cnt = document.getElementById('cntDisabled');
+    const tb  = document.getElementById('tbDisabled');
+    cnt.textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    tb.innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-rule">${escHtml(r.name)}</span></td>
+            <td>${folderBadge(r.folder)}</td>
+            <td><span style="font-size:11px;color:#475569">${escHtml(r.device)}</span></td>
+            <td></td>
+        </tr>`).join('');
+}
+
+function renderBroad(rows) {
+    const sec = document.getElementById('secBroad');
+    const cnt = document.getElementById('cntBroad');
+    const tb  = document.getElementById('tbBroad');
+    cnt.textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    tb.innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-rule" style="background:rgba(245,158,11,.15);color:#fcd34d">${escHtml(r.name)}</span></td>
+            <td>${folderBadge(r.folder)}</td>
+            <td><span style="font-size:11px;color:#475569">${escHtml(r.device)}</span></td>
+            <td><span style="font-size:11px;color:#64748b">${escHtml(r.reason)}</span></td>
+        </tr>`).join('');
+}
+
+function renderShadowed(rows, devId) {
+    const sec = document.getElementById('secShadow');
+    const cnt = document.getElementById('cntShadow');
+    const tb  = document.getElementById('tbShadow');
+    cnt.textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    tb.innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-rule tag-shadow">${escHtml(r.name)}</span></td>
+            <td><span class="tag-rule" style="background:rgba(59,130,246,.12);color:#93c5fd">${escHtml(r.shadowed_by)}</span></td>
+            <td style="max-width:260px;font-size:11px;color:#64748b">${escHtml(r.reason)}</td>
+            <td>${folderBadge(r.folder)}</td>
+            <td></td>
+        </tr>`).join('');
+}
+
+function renderRedundant(rows) {
+    const sec = document.getElementById('secRedundant');
+    const cnt = document.getElementById('cntRedundant');
+    const tb  = document.getElementById('tbRedundant');
+    cnt.textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    tb.innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-rule" style="background:rgba(139,92,246,.12);color:#c4b5fd">${escHtml(r.name)}</span></td>
+            <td><span class="tag-rule" style="background:rgba(139,92,246,.12);color:#c4b5fd">${escHtml(r.pair_name)}</span></td>
+            <td style="font-size:11px;color:#64748b">${escHtml(r.reason)}</td>
+            <td>${folderBadge(r.folder)}</td>
+            <td></td>
+        </tr>`).join('');
+}
+
+// Toast helper (same as other pages)
+function showToast(msg, type='success') {
+    const stack = document.getElementById('toastStack');
+    const t = document.createElement('div');
+    t.className = `toast-item toast-${type}`;
+    t.innerHTML = `<span>${msg}</span>`;
+    stack.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+}
+</script>
+{% endblock %}
