@@ -394,6 +394,18 @@ class DeleteRequest(BaseModel):
 class AcknowledgeRequest(BaseModel):
     rule_ids: List[str]
 
+class BulkToggleRequest(BaseModel):
+    rule_ids: List[str]
+    enabled: bool
+
+class BulkActionRequest(BaseModel):
+    rule_ids: List[str]
+    action: str   # allow / deny / drop / reset_both / reset_server / reset_client
+
+class BulkLogRequest(BaseModel):
+    rule_ids: List[str]
+    log_mode: str  # LOG_MODE_ENABLED / LOG_MODE_DISABLED / LOG_MODE_IF_SESSIONS_EXISTS
+
 @router.post("/api/v1/rules/create")
 async def create_rule(request: Request, data: RuleCreateRequest, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
@@ -540,6 +552,124 @@ async def toggle_rule(request: Request, data: ToggleRequest, db: AsyncSession = 
         return JSONResponse({"status": "ok"})
     except Exception as e:
         logger.error(f"Toggle rule failed: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
+@router.post("/api/v1/rules/bulk_toggle")
+async def bulk_toggle_rules(request: Request, data: BulkToggleRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    stmt = select(CachedRule).where(CachedRule.id.in_(data.rule_ids))
+    rules = (await db.execute(stmt)).scalars().all()
+    if not rules:
+        return JSONResponse({"status": "error", "message": "No rules found"}, status_code=404)
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    ok_count = 0
+    errors = []
+    state = "enabled" if data.enabled else "disabled"
+    try:
+        await client.login(user['username'], user['password'])
+        for rule in rules:
+            try:
+                await client.update_rule(rule.ext_id, {"id": rule.ext_id, "enabled": data.enabled})
+                if rule.data:
+                    rule.data = {**rule.data, "enabled": data.enabled}
+                folder = await db.get(Folder, rule.folder_id)
+                dg = folder.device_group_id if folder else ""
+                await _log_change(db, user, "toggle", "rule", rule.name, rule.ext_id, dg,
+                                  f"Bulk: set {state}")
+                ok_count += 1
+            except Exception as e:
+                errors.append(f"{rule.name}: {e}")
+        await db.commit()
+        return JSONResponse({"status": "ok", "updated": ok_count, "errors": errors})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
+_ACTION_MAP = {
+    "allow":        "SECURITY_RULE_ACTION_ALLOW",
+    "deny":         "SECURITY_RULE_ACTION_DENY",
+    "drop":         "SECURITY_RULE_ACTION_DROP",
+    "reset_both":   "SECURITY_RULE_ACTION_RESET_BOTH",
+    "reset_server": "SECURITY_RULE_ACTION_RESET_SERVER",
+    "reset_client": "SECURITY_RULE_ACTION_RESET_CLIENT",
+}
+
+@router.post("/api/v1/rules/bulk_action")
+async def bulk_change_action(request: Request, data: BulkActionRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    api_action = _ACTION_MAP.get(data.action.lower())
+    if not api_action:
+        return JSONResponse({"status": "error", "message": f"Unknown action: {data.action}"}, status_code=400)
+
+    stmt = select(CachedRule).where(CachedRule.id.in_(data.rule_ids))
+    rules = (await db.execute(stmt)).scalars().all()
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    ok_count = 0
+    errors = []
+    try:
+        await client.login(user['username'], user['password'])
+        for rule in rules:
+            try:
+                await client.update_rule(rule.ext_id, {"id": rule.ext_id, "action": api_action})
+                if rule.data:
+                    rule.data = {**rule.data, "action": api_action}
+                folder = await db.get(Folder, rule.folder_id)
+                dg = folder.device_group_id if folder else ""
+                await _log_change(db, user, "update", "rule", rule.name, rule.ext_id, dg,
+                                  f"Bulk action → {data.action}")
+                ok_count += 1
+            except Exception as e:
+                errors.append(f"{rule.name}: {e}")
+        await db.commit()
+        return JSONResponse({"status": "ok", "updated": ok_count, "errors": errors})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
+@router.post("/api/v1/rules/bulk_log")
+async def bulk_change_log(request: Request, data: BulkLogRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    stmt = select(CachedRule).where(CachedRule.id.in_(data.rule_ids))
+    rules = (await db.execute(stmt)).scalars().all()
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    ok_count = 0
+    errors = []
+    try:
+        await client.login(user['username'], user['password'])
+        for rule in rules:
+            try:
+                await client.update_rule(rule.ext_id, {"id": rule.ext_id, "logMode": data.log_mode})
+                if rule.data:
+                    rule.data = {**rule.data, "logMode": data.log_mode}
+                folder = await db.get(Folder, rule.folder_id)
+                dg = folder.device_group_id if folder else ""
+                await _log_change(db, user, "update", "rule", rule.name, rule.ext_id, dg,
+                                  f"Bulk log → {data.log_mode}")
+                ok_count += 1
+            except Exception as e:
+                errors.append(f"{rule.name}: {e}")
+        await db.commit()
+        return JSONResponse({"status": "ok", "updated": ok_count, "errors": errors})
+    except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
     finally:
         await client.close()

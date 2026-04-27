@@ -178,16 +178,55 @@
 {# ====================== BULK BAR ====================== #}
 <div class="bulk-bar hidden" id="bulkBar">
     <span><span class="bulk-bar-count" id="selCount">0</span> selected</span>
+
+    <div class="bulk-sep"></div>
+
+    <button class="btn-bulk green" onclick="bulkToggle(true)" title="Enable selected rules">
+        <i class="fas fa-circle-check me-1"></i>Enable
+    </button>
+    <button class="btn-bulk yellow" onclick="bulkToggle(false)" title="Disable selected rules">
+        <i class="fas fa-circle-xmark me-1"></i>Disable
+    </button>
+
+    <div class="bulk-sep"></div>
+
+    {# Action dropdown #}
+    <div class="bulk-dropdown" id="ddAction">
+        <button class="btn-bulk light" onclick="toggleBulkDD('ddAction')">
+            <i class="fas fa-shield-halved me-1"></i>Action <i class="fas fa-chevron-down ms-1" style="font-size:9px"></i>
+        </button>
+        <div class="bulk-dd-menu" id="ddActionMenu">
+            <div class="bulk-dd-item allow" onclick="bulkAction('allow')"><i class="fas fa-check me-2"></i>Allow</div>
+            <div class="bulk-dd-item deny" onclick="bulkAction('deny')"><i class="fas fa-ban me-2"></i>Deny</div>
+            <div class="bulk-dd-item drop" onclick="bulkAction('drop')"><i class="fas fa-circle-stop me-2"></i>Drop</div>
+            <div class="bulk-dd-item reset" onclick="bulkAction('reset_both')"><i class="fas fa-rotate me-2"></i>Reset Both</div>
+        </div>
+    </div>
+
+    {# Logging dropdown #}
+    <div class="bulk-dropdown" id="ddLog">
+        <button class="btn-bulk light" onclick="toggleBulkDD('ddLog')">
+            <i class="fas fa-file-lines me-1"></i>Logging <i class="fas fa-chevron-down ms-1" style="font-size:9px"></i>
+        </button>
+        <div class="bulk-dd-menu" id="ddLogMenu">
+            <div class="bulk-dd-item" onclick="bulkLog('LOG_MODE_ENABLED')"><i class="fas fa-toggle-on me-2" style="color:#22c55e"></i>Enable Logging</div>
+            <div class="bulk-dd-item" onclick="bulkLog('LOG_MODE_DISABLED')"><i class="fas fa-toggle-off me-2" style="color:#ef4444"></i>Disable Logging</div>
+            <div class="bulk-dd-item" onclick="bulkLog('LOG_MODE_IF_SESSIONS_EXISTS')"><i class="fas fa-clock me-2" style="color:#f59e0b"></i>If Session Exists</div>
+        </div>
+    </div>
+
+    <div class="bulk-sep"></div>
+
     <button class="btn-bulk light" onclick="openMoveToFolder()">
-        <i class="fas fa-folder-arrow-down me-1"></i>Move to Folder
+        <i class="fas fa-folder-arrow-down me-1"></i>Move
     </button>
     <button class="btn-bulk light" onclick="openTransfer()">
-        <i class="fas fa-paper-plane me-1"></i>Transfer / Copy
+        <i class="fas fa-paper-plane me-1"></i>Transfer
     </button>
     <button class="btn-bulk red" onclick="bulkDelete()">
         <i class="fas fa-trash me-1"></i>Delete
     </button>
-    <button class="btn-bulk light" onclick="clearSelection()" style="padding:5px 10px">
+    <button class="btn-bulk light" onclick="clearSelection()" style="padding:5px 10px" title="Clear selection">
         <i class="fas fa-xmark"></i>
     </button>
 </div>
@@ -803,6 +842,123 @@ async function doTransfer(mode) {
     } catch (e) {
         hideLoading();
         showToast('Transfer error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   BULK DROPDOWN
+   ===================================================== */
+function toggleBulkDD(id) {
+    const menu = document.getElementById(id + 'Menu');
+    const isOpen = menu.classList.contains('open');
+    document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    if (!isOpen) menu.classList.add('open');
+}
+document.addEventListener('click', e => {
+    if (!e.target.closest('.bulk-dropdown')) {
+        document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    }
+});
+
+/* =====================================================
+   BULK TOGGLE (enable / disable)
+   ===================================================== */
+async function bulkToggle(enabled) {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const label = enabled ? 'enable' : 'disable';
+    if (!await confirmDialog(
+        `${label.charAt(0).toUpperCase() + label.slice(1)} Rules`,
+        `${label.charAt(0).toUpperCase() + label.slice(1)} ${ids.length} selected rule(s)?`,
+        label.charAt(0).toUpperCase() + label.slice(1)
+    )) return;
+    showLoading(`${label.charAt(0).toUpperCase() + label.slice(1)}ing ${ids.length} rule(s)…`);
+    try {
+        const r = await fetch('/api/v1/rules/bulk_toggle', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids, enabled})
+        });
+        const d = await r.json();
+        hideLoading();
+        if (d.errors && d.errors.length) {
+            showToast(`${d.updated} updated, ${d.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${d.updated} rule(s) ${label}d`, 'success');
+        }
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        hideLoading();
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   BULK ACTION CHANGE
+   ===================================================== */
+async function bulkAction(action) {
+    document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!await confirmDialog(
+        'Change Action',
+        `Set action to "${action.toUpperCase()}" for ${ids.length} rule(s)?`,
+        'Apply'
+    )) return;
+    showLoading(`Changing action for ${ids.length} rule(s)…`);
+    try {
+        const r = await fetch('/api/v1/rules/bulk_action', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids, action})
+        });
+        const d = await r.json();
+        hideLoading();
+        if (d.errors && d.errors.length) {
+            showToast(`${d.updated} updated, ${d.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${d.updated} rule(s) → ${action}`, 'success');
+        }
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        hideLoading();
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   BULK LOG MODE CHANGE
+   ===================================================== */
+async function bulkLog(logMode) {
+    document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const label = logMode === 'LOG_MODE_ENABLED' ? 'Enable Logging'
+                : logMode === 'LOG_MODE_DISABLED' ? 'Disable Logging'
+                : 'If Session Exists';
+    if (!await confirmDialog(
+        'Change Logging',
+        `Set "${label}" for ${ids.length} rule(s)?`,
+        'Apply'
+    )) return;
+    showLoading(`Updating logging for ${ids.length} rule(s)…`);
+    try {
+        const r = await fetch('/api/v1/rules/bulk_log', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids, log_mode: logMode})
+        });
+        const d = await r.json();
+        hideLoading();
+        if (d.errors && d.errors.length) {
+            showToast(`${d.updated} updated, ${d.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${d.updated} rule(s) logging updated`, 'success');
+        }
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        hideLoading();
+        showToast('Error: ' + e.message, 'error');
     }
 }
 
