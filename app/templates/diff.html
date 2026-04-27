@@ -1,0 +1,405 @@
+{% extends "base.html" %}
+{% block title %}Policy Diff — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    <div class="app-main">
+
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-code-compare" style="color:#f59e0b;margin-right:6px"></i>
+                Policy Diff
+            </span>
+            <div class="topbar-sep"></div>
+            <a href="/" class="btn-top" style="text-decoration:none"><i class="fas fa-layer-group"></i> Rules</a>
+            <a href="/analyzer" class="btn-top" style="text-decoration:none"><i class="fas fa-magnifying-glass-chart"></i> Analyzer</a>
+            <a href="/changelog" class="btn-top" style="text-decoration:none"><i class="fas fa-clock-rotate-left"></i> Log</a>
+        </div>
+
+        <div class="app-content" style="padding:20px;display:flex;flex-direction:column;gap:16px;overflow:auto">
+
+            {# ---- Tabs ---- #}
+            <div style="display:flex;gap:4px">
+                <button id="tabBtnDevice" class="diff-tab active" onclick="switchTab('device')">
+                    <i class="fas fa-server me-1"></i>Device Comparison
+                </button>
+                <button id="tabBtnModified" class="diff-tab" onclick="switchTab('modified')">
+                    <i class="fas fa-pen-to-square me-1"></i>Modified (Pending Deploy)
+                </button>
+            </div>
+
+            {# ========== TAB: Device Comparison ========== #}
+            <div id="tabDevice">
+
+                <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;
+                            background:#1e293b;border:1px solid rgba(255,255,255,.06);
+                            border-radius:10px;padding:14px 16px">
+                    <div>
+                        <div class="diff-label">Device A</div>
+                        <select id="selA" class="diff-select">
+                            <option value="">— Select —</option>
+                            {% for d in devices %}
+                            <option value="{{ d.device_id }}">{{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="color:#475569;padding-bottom:6px"><i class="fas fa-arrows-left-right"></i></div>
+                    <div>
+                        <div class="diff-label">Device B</div>
+                        <select id="selB" class="diff-select">
+                            <option value="">— Select —</option>
+                            {% for d in devices %}
+                            <option value="{{ d.device_id }}">{{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button onclick="runDeviceDiff()"
+                            style="padding:6px 20px;border-radius:6px;border:none;
+                                   background:linear-gradient(135deg,#d97706,#f59e0b);
+                                   color:#fff;font-weight:600;font-size:13px;cursor:pointer">
+                        <i class="fas fa-play me-1"></i>Compare
+                    </button>
+                    <div id="diffSummary" style="margin-left:auto;font-size:12px;color:#475569"></div>
+                </div>
+
+                <div id="ddSpinner" style="display:none;text-align:center;padding:48px;color:#475569">
+                    <i class="fas fa-circle-notch fa-spin" style="font-size:24px;display:block;margin-bottom:8px"></i>
+                    Comparing…
+                </div>
+
+                <div id="ddResults" style="display:none;display:flex;flex-direction:column;gap:12px">
+
+                    {# Only in A #}
+                    <div id="secOnlyA" class="diff-section" style="border-left-color:#22c55e;display:none">
+                        <div class="diff-sec-hdr">
+                            <i class="fas fa-plus-circle" style="color:#22c55e"></i>
+                            <span id="lblOnlyA">Only in A</span>
+                            <span class="diff-badge green" id="cntOnlyA">0</span>
+                            <span style="font-size:11px;color:#475569;margin-left:6px">— rules that exist in A but not in B</span>
+                        </div>
+                        <table class="diff-table"><thead><tr><th>Name</th><th>Folder</th><th>Action</th><th>Enabled</th></tr></thead>
+                        <tbody id="tbOnlyA"></tbody></table>
+                    </div>
+
+                    {# Only in B #}
+                    <div id="secOnlyB" class="diff-section" style="border-left-color:#ef4444;display:none">
+                        <div class="diff-sec-hdr">
+                            <i class="fas fa-minus-circle" style="color:#ef4444"></i>
+                            <span id="lblOnlyB">Only in B</span>
+                            <span class="diff-badge red" id="cntOnlyB">0</span>
+                            <span style="font-size:11px;color:#475569;margin-left:6px">— rules that exist in B but not in A</span>
+                        </div>
+                        <table class="diff-table"><thead><tr><th>Name</th><th>Folder</th><th>Action</th><th>Enabled</th></tr></thead>
+                        <tbody id="tbOnlyB"></tbody></table>
+                    </div>
+
+                    {# Changed #}
+                    <div id="secChanged" class="diff-section" style="border-left-color:#f59e0b;display:none">
+                        <div class="diff-sec-hdr">
+                            <i class="fas fa-arrows-rotate" style="color:#f59e0b"></i>
+                            <span>Different</span>
+                            <span class="diff-badge yellow" id="cntChanged">0</span>
+                            <span style="font-size:11px;color:#475569;margin-left:6px">— same name, different settings</span>
+                        </div>
+                        <table class="diff-table">
+                            <thead><tr><th>Name</th><th>Field</th><th>Value A</th><th>Value B</th></tr></thead>
+                            <tbody id="tbChanged"></tbody>
+                        </table>
+                    </div>
+
+                    {# All clear #}
+                    <div id="ddClear" style="display:none;text-align:center;padding:48px;color:#22c55e">
+                        <i class="fas fa-circle-check" style="font-size:36px;display:block;margin-bottom:10px"></i>
+                        <div style="font-size:16px;font-weight:700">Policies are identical</div>
+                        <div style="font-size:12px;color:#475569;margin-top:4px">All rules match between the two device groups.</div>
+                    </div>
+
+                </div>{# /ddResults #}
+            </div>{# /tabDevice #}
+
+            {# ========== TAB: Modified ========== #}
+            <div id="tabModified" style="display:none">
+
+                <div style="display:flex;align-items:flex-end;gap:12px;
+                            background:#1e293b;border:1px solid rgba(255,255,255,.06);
+                            border-radius:10px;padding:14px 16px">
+                    <div>
+                        <div class="diff-label">Device</div>
+                        <select id="selModDev" class="diff-select">
+                            <option value="">— Select —</option>
+                            {% for d in devices %}
+                            <option value="{{ d.device_id }}">{{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button onclick="loadModified()"
+                            style="padding:6px 20px;border-radius:6px;border:none;
+                                   background:linear-gradient(135deg,#7c3aed,#8b5cf6);
+                                   color:#fff;font-weight:600;font-size:13px;cursor:pointer">
+                        <i class="fas fa-play me-1"></i>Load
+                    </button>
+                    <span style="font-size:12px;color:#475569;margin-left:auto" id="modInfo"></span>
+                </div>
+
+                <div id="modResults" style="margin-top:4px">
+                    <div style="text-align:center;padding:48px;color:#475569;font-size:13px">
+                        <i class="fas fa-pen-to-square" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3"></i>
+                        Select a device to see locally modified rules
+                    </div>
+                </div>
+
+            </div>{# /tabModified #}
+
+        </div>
+    </div>
+</div>
+
+<style>
+.diff-tab {
+    padding:6px 16px;border-radius:7px;border:none;font-size:12px;font-weight:700;
+    cursor:pointer;transition:.15s;background:rgba(255,255,255,.06);color:#94a3b8
+}
+.diff-tab.active { background:rgba(245,158,11,.2);color:#fbbf24 }
+.diff-tab:hover:not(.active) { background:rgba(255,255,255,.1);color:#cbd5e1 }
+
+.diff-label { font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px }
+.diff-select {
+    padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
+    background:#0f172a;color:#e2e8f0;font-size:13px;outline:none;min-width:200px
+}
+
+.diff-section {
+    background:#1e293b;border:1px solid rgba(255,255,255,.06);
+    border-left:3px solid #3b82f6;border-radius:10px;padding:14px 18px
+}
+.diff-sec-hdr {
+    display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;
+    color:#e2e8f0;margin-bottom:10px
+}
+.diff-badge {
+    border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700
+}
+.diff-badge.green  { background:rgba(34,197,94,.15);color:#4ade80 }
+.diff-badge.red    { background:rgba(239,68,68,.15);color:#f87171 }
+.diff-badge.yellow { background:rgba(245,158,11,.15);color:#fbbf24 }
+
+.diff-table { width:100%;border-collapse:collapse;font-size:12px }
+.diff-table th {
+    padding:6px 10px;text-align:left;color:#475569;font-size:11px;
+    font-weight:700;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.06)
+}
+.diff-table td {
+    padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.04);
+    color:#cbd5e1;vertical-align:middle
+}
+.diff-table tr:last-child td { border-bottom:none }
+.diff-table tr:hover td { background:rgba(255,255,255,.03) }
+
+.tag-only-a { display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(34,197,94,.12);color:#4ade80 }
+.tag-only-b { display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(239,68,68,.12);color:#f87171 }
+.tag-val    { font-family:monospace;font-size:11px;color:#94a3b8 }
+.tag-val-a  { color:#4ade80 }
+.tag-val-b  { color:#f87171 }
+
+.mod-row {
+    display:flex;align-items:center;gap:10px;padding:10px 14px;
+    border-bottom:1px solid rgba(255,255,255,.04);
+}
+.mod-row:last-child { border-bottom:none }
+.mod-row:hover { background:rgba(255,255,255,.02) }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _activeTab = 'device';
+
+function switchTab(t) {
+    _activeTab = t;
+    document.getElementById('tabDevice').style.display   = t === 'device'   ? '' : 'none';
+    document.getElementById('tabModified').style.display = t === 'modified' ? '' : 'none';
+    document.getElementById('tabBtnDevice').classList.toggle('active',   t === 'device');
+    document.getElementById('tabBtnModified').classList.toggle('active', t === 'modified');
+}
+
+// ---- Device Diff ----
+async function runDeviceDiff() {
+    const a = document.getElementById('selA').value;
+    const b = document.getElementById('selB').value;
+    if (!a || !b) { showToast('Выберите оба устройства', 'warning'); return; }
+    if (a === b)  { showToast('Устройства должны быть разными', 'warning'); return; }
+
+    document.getElementById('ddSpinner').style.display  = 'block';
+    document.getElementById('ddResults').style.display  = 'none';
+    document.getElementById('diffSummary').textContent  = '';
+    ['secOnlyA','secOnlyB','secChanged','ddClear'].forEach(id =>
+        document.getElementById(id).style.display = 'none');
+
+    try {
+        const r = await fetch('/api/v1/diff/devices', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({device_a: a, device_b: b})
+        });
+        const d = await r.json();
+        document.getElementById('ddSpinner').style.display = 'none';
+        document.getElementById('ddResults').style.display = '';
+
+        const nameA = document.getElementById('selA').options[document.getElementById('selA').selectedIndex].text;
+        const nameB = document.getElementById('selB').options[document.getElementById('selB').selectedIndex].text;
+
+        document.getElementById('diffSummary').textContent =
+            `A: ${d.total_a} rules · B: ${d.total_b} rules · ${d.identical} identical`;
+
+        document.getElementById('lblOnlyA').textContent = `Only in ${nameA}`;
+        document.getElementById('lblOnlyB').textContent = `Only in ${nameB}`;
+
+        _renderOnlyA(d.only_a || [], nameA);
+        _renderOnlyB(d.only_b || [], nameB);
+        _renderChanged(d.changed || [], nameA, nameB);
+
+        const hasIssues = d.only_a.length || d.only_b.length || d.changed.length;
+        document.getElementById('ddClear').style.display = hasIssues ? 'none' : '';
+    } catch(e) {
+        document.getElementById('ddSpinner').style.display = 'none';
+        showToast('Ошибка: ' + e.message, 'error');
+    }
+}
+
+function _renderOnlyA(rows, nameA) {
+    const sec = document.getElementById('secOnlyA');
+    document.getElementById('cntOnlyA').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('tbOnlyA').innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-only-a">${_e(r.name)}</span></td>
+            <td style="color:#475569;font-size:11px">${_e(r.folder)}</td>
+            <td>${_actionBadge(r.action)}</td>
+            <td>${r.enabled ? '<span style="color:#4ade80;font-size:11px">✓</span>' : '<span style="color:#f87171;font-size:11px">✗</span>'}</td>
+        </tr>`).join('');
+}
+
+function _renderOnlyB(rows, nameB) {
+    const sec = document.getElementById('secOnlyB');
+    document.getElementById('cntOnlyB').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('tbOnlyB').innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-only-b">${_e(r.name)}</span></td>
+            <td style="color:#475569;font-size:11px">${_e(r.folder)}</td>
+            <td>${_actionBadge(r.action)}</td>
+            <td>${r.enabled ? '<span style="color:#4ade80;font-size:11px">✓</span>' : '<span style="color:#f87171;font-size:11px">✗</span>'}</td>
+        </tr>`).join('');
+}
+
+function _renderChanged(rows, nameA, nameB) {
+    const sec = document.getElementById('secChanged');
+    document.getElementById('cntChanged').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    const html = rows.flatMap(r =>
+        r.diffs.map((field, fi) => `
+        <tr>
+            ${fi === 0 ? `<td rowspan="${r.diffs.length}" style="font-weight:600;vertical-align:top;padding-top:10px">${_e(r.name)}</td>` : ''}
+            <td style="color:#94a3b8;font-size:11px">${_e(field)}</td>
+            <td><span class="tag-val tag-val-a">${_fmtSigVal(r.a[field])}</span></td>
+            <td><span class="tag-val tag-val-b">${_fmtSigVal(r.b[field])}</span></td>
+        </tr>`)
+    ).join('');
+    document.getElementById('tbChanged').innerHTML = html;
+}
+
+function _fmtSigVal(v) {
+    if (v === 'None' || v === null || v === undefined) return 'ANY';
+    if (v === 'True') return 'enabled';
+    if (v === 'False') return 'disabled';
+    if (v.startsWith('frozenset(')) {
+        const m = v.match(/'([^']+)'/g);
+        return m ? m.map(s => s.replace(/'/g,'')).join(', ').slice(0, 60) : v;
+    }
+    return _e(String(v).slice(0, 80));
+}
+
+function _actionBadge(a) {
+    if (!a) return '—';
+    const cls = a === 'ALLOW' ? 'a-allow' : a === 'DENY' ? 'a-deny' : a === 'DROP' ? 'a-drop' : 'a-other';
+    return `<span class="${cls}">${_e(a)}</span>`;
+}
+
+// ---- Modified ----
+async function loadModified() {
+    const dev = document.getElementById('selModDev').value;
+    if (!dev) { showToast('Выберите устройство', 'warning'); return; }
+
+    document.getElementById('modResults').innerHTML =
+        '<div style="text-align:center;padding:40px;color:#475569"><i class="fas fa-circle-notch fa-spin me-2"></i>Loading…</div>';
+
+    try {
+        const r = await fetch(`/api/v1/diff/modified?device_group_id=${encodeURIComponent(dev)}`);
+        const d = await r.json();
+        const rules = d.rules || [];
+
+        document.getElementById('modInfo').textContent =
+            rules.length ? `${rules.length} modified rule(s)` : '';
+
+        if (!rules.length) {
+            document.getElementById('modResults').innerHTML = `
+                <div style="text-align:center;padding:48px;color:#22c55e">
+                    <i class="fas fa-circle-check" style="font-size:32px;display:block;margin-bottom:10px"></i>
+                    <div style="font-size:15px;font-weight:700">No pending changes</div>
+                    <div style="font-size:12px;color:#475569;margin-top:4px">All rules match the last sync.</div>
+                </div>`;
+            return;
+        }
+
+        document.getElementById('modResults').innerHTML = `
+            <div style="background:#1e293b;border:1px solid rgba(245,158,11,.2);border-left:3px solid #f59e0b;
+                        border-radius:10px;margin-top:4px;overflow:hidden">
+                <div style="padding:10px 16px;font-size:12px;font-weight:700;color:#fbbf24;border-bottom:1px solid rgba(255,255,255,.06)">
+                    <i class="fas fa-pen-to-square me-2"></i>${rules.length} rule(s) modified locally — not yet deployed
+                </div>
+                ${rules.map(r => `
+                <div class="mod-row">
+                    <i class="fas fa-pen" style="color:#f59e0b;font-size:11px;flex-shrink:0"></i>
+                    <span style="font-weight:600;color:#e2e8f0">${_e(r.name)}</span>
+                    <span style="font-size:11px;color:#475569;margin-left:4px">/ ${_e(r.folder)}</span>
+                    ${r.modified_at ? `<span style="font-size:10px;color:#334155;margin-left:auto">${_fmtTime(r.modified_at)}</span>` : ''}
+                    <a href="/?rule_id=${encodeURIComponent(r.id)}"
+                       style="font-size:11px;color:#60a5fa;text-decoration:none;flex-shrink:0"
+                       title="Open rule">
+                        <i class="fas fa-arrow-up-right-from-square"></i>
+                    </a>
+                </div>`).join('')}
+            </div>`;
+    } catch(e) {
+        document.getElementById('modResults').innerHTML =
+            `<div style="padding:24px;color:#ef4444;text-align:center">Error: ${_e(e.message)}</div>`;
+    }
+}
+
+function _fmtTime(s) {
+    if (!s) return '';
+    try { return new Date(s).toLocaleString('ru-RU'); } catch { return s; }
+}
+
+function _e(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Toast helper
+function showToast(msg, type='success') {
+    const stack = document.getElementById('toastStack');
+    const t = document.createElement('div');
+    t.className = `toast-item toast-${type}`;
+    t.innerHTML = `<span>${msg}</span>`;
+    stack.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+}
+</script>
+{% endblock %}

@@ -2537,3 +2537,170 @@ async def query_changelog(data: ChangelogQueryRequest, db: AsyncSession = Depend
             "detail":         r.detail,
         })
     return JSONResponse({"status": "ok", "total": total, "items": items})
+
+
+# ---------------------------------------------------------------------------
+# Policy Diff
+# ---------------------------------------------------------------------------
+
+class DeviceDiffRequest(BaseModel):
+    device_a: str
+    device_b: str
+
+
+def _rule_signature(data: Dict) -> Dict:
+    """Extract comparable fields from rule data."""
+    def _ids(field):
+        if not field:
+            return None
+        kind = field.get("kind", "")
+        if "ANY" in kind:
+            return None
+        objs = field.get("objects", [])
+        if isinstance(objs, dict):
+            objs = objs.get("array", [])
+        ids = set()
+        for o in objs:
+            if isinstance(o, dict):
+                ids.add(o.get("id", ""))
+        return frozenset(ids) or None
+
+    action = data.get("action", "")
+    action = action.split("_")[-1].upper() if "_" in action else action.upper()
+
+    return {
+        "action":   action,
+        "enabled":  data.get("enabled", True),
+        "srcZone":  _ids(data.get("sourceZone")),
+        "dstZone":  _ids(data.get("destinationZone")),
+        "srcAddr":  _ids(data.get("sourceAddr")),
+        "dstAddr":  _ids(data.get("destinationAddr")),
+        "service":  _ids(data.get("service")),
+    }
+
+
+def _sig_diff(a: Dict, b: Dict) -> List[str]:
+    """Return list of field names that differ between two signatures."""
+    diffs = []
+    for k in a:
+        if a[k] != b[k]:
+            diffs.append(k)
+    return diffs
+
+
+@router.get("/diff", response_class=HTMLResponse)
+async def diff_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    meta_res = await db.execute(select(DeviceMeta))
+    devices = [{"device_id": d.device_id, "name": d.name or d.device_id}
+               for d in meta_res.scalars().all() if d.device_id != "global"]
+
+    return templates.TemplateResponse("diff.html", {
+        "request": request,
+        "user": user,
+        "devices": devices,
+        "selected_folder_id": None,
+        "current_device_id": None,
+        "tree": {},
+    })
+
+
+@router.post("/api/v1/diff/devices")
+async def diff_devices(data: DeviceDiffRequest, db: AsyncSession = Depends(get_db)):
+    """Compare cached rules between two device groups."""
+
+    async def _load(device_id: str):
+        folders_stmt = select(Folder).where(Folder.device_group_id == device_id)
+        folder_rows = (await db.execute(folders_stmt)).scalars().all()
+        folder_map = {f.id: f.name for f in folder_rows}
+
+        rules_stmt = select(CachedRule).where(
+            CachedRule.folder_id.in_(list(folder_map.keys()))
+        ).order_by(CachedRule.folder_sort_order)
+        rules = (await db.execute(rules_stmt)).scalars().all()
+        return {
+            r.name: {
+                "id":     r.id,
+                "ext_id": r.ext_id,
+                "name":   r.name,
+                "folder": folder_map.get(r.folder_id, ""),
+                "sig":    _rule_signature(r.data or {}),
+                "data":   r.data or {},
+            }
+            for r in rules
+        }
+
+    rules_a = await _load(data.device_a)
+    rules_b = await _load(data.device_b)
+
+    names_a = set(rules_a)
+    names_b = set(rules_b)
+
+    only_a = []
+    for name in sorted(names_a - names_b):
+        r = rules_a[name]
+        only_a.append({"name": name, "folder": r["folder"],
+                        "action": r["sig"]["action"], "enabled": r["sig"]["enabled"]})
+
+    only_b = []
+    for name in sorted(names_b - names_a):
+        r = rules_b[name]
+        only_b.append({"name": name, "folder": r["folder"],
+                        "action": r["sig"]["action"], "enabled": r["sig"]["enabled"]})
+
+    changed = []
+    for name in sorted(names_a & names_b):
+        ra, rb = rules_a[name], rules_b[name]
+        diffs = _sig_diff(ra["sig"], rb["sig"])
+        if diffs:
+            changed.append({
+                "name":   name,
+                "folder_a": ra["folder"],
+                "folder_b": rb["folder"],
+                "diffs":  diffs,
+                "a": {k: str(v) for k, v in ra["sig"].items()},
+                "b": {k: str(v) for k, v in rb["sig"].items()},
+            })
+
+    return JSONResponse({
+        "status":    "ok",
+        "total_a":   len(rules_a),
+        "total_b":   len(rules_b),
+        "only_a":    only_a,
+        "only_b":    only_b,
+        "changed":   changed,
+        "identical": len(names_a & names_b) - len(changed),
+    })
+
+
+@router.get("/api/v1/diff/modified")
+async def diff_modified(device_group_id: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """Return rules marked as modified (pending deploy)."""
+    folders_stmt = select(Folder).where(Folder.device_group_id == device_group_id)
+    folder_map = {f.id: f.name for f in (await db.execute(folders_stmt)).scalars().all()}
+
+    if not folder_map:
+        return JSONResponse({"status": "ok", "rules": []})
+
+    stmt = select(CachedRule).where(
+        CachedRule.folder_id.in_(list(folder_map.keys())),
+        CachedRule.is_modified == True,
+    )
+    rules = (await db.execute(stmt)).scalars().all()
+
+    return JSONResponse({
+        "status": "ok",
+        "rules": [
+            {
+                "id":     r.id,
+                "ext_id": r.ext_id,
+                "name":   r.name,
+                "folder": folder_map.get(r.folder_id, ""),
+                "modified_at": r.modified_at,
+            }
+            for r in rules
+        ],
+    })
