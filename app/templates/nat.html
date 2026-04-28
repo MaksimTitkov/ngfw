@@ -909,12 +909,7 @@ async function submitNat() {
         payload.folder_id = folderId;
     }
 
-    // For edits we'd need an update endpoint — for now create only
-    const endpoint = '/api/v1/nat/rules/create';
-    if (isEdit) {
-        showToast('NAT rule edit not yet implemented — use delete + recreate', 'warning');
-        return;
-    }
+    const endpoint = isEdit ? '/api/v1/nat/rules/update' : '/api/v1/nat/rules/create';
 
     document.getElementById('nm_loading').style.display = 'flex';
     document.querySelector('#natModal .btn-primary').disabled = true;
@@ -926,9 +921,9 @@ async function submitNat() {
             body: JSON.stringify(payload)
         });
         const data = await r.json();
-        if (!r.ok) throw new Error(data.message || 'Unknown error');
+        if (!r.ok || data.status === 'error') throw new Error(data.message || 'Unknown error');
         getNatModal().hide();
-        showToast(`NAT rule "${name}" created`, 'success');
+        showToast(`NAT rule "${name}" ${isEdit ? 'updated' : 'created'}`, 'success');
         setTimeout(() => location.reload(), 800);
     } catch (e) {
         showToast('Error: ' + e.message, 'error');

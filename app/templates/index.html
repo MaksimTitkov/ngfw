@@ -243,12 +243,45 @@
     <button class="btn-bulk light" onclick="openTransfer()">
         <i class="fas fa-paper-plane me-1"></i>Transfer
     </button>
+    <button class="btn-bulk light" onclick="openSaveTemplate()" title="Save selected rule as template" style="color:#f59e0b">
+        <i class="fas fa-bookmark me-1"></i>Template
+    </button>
     <button class="btn-bulk red" onclick="bulkDelete()">
         <i class="fas fa-trash me-1"></i>Delete
     </button>
     <button class="btn-bulk light" onclick="clearSelection()" style="padding:5px 10px" title="Clear selection">
         <i class="fas fa-xmark"></i>
     </button>
+</div>
+
+{# ---- Save as Template Modal ---- #}
+<div class="modal fade" id="saveTemplateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-bookmark me-2" style="color:#f59e0b"></i>Save as Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:13px;color:#94a3b8">Save the selected rule as a reusable template (stored locally).</p>
+                <div class="mb-3">
+                    <label class="form-label-sm">Template Name <span style="color:#ef4444">*</span></label>
+                    <input type="text" id="tmpl_name" class="form-control" placeholder="e.g. Allow-HTTPS-internal">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label-sm">Description (optional)</label>
+                    <input type="text" id="tmpl_desc" class="form-control" placeholder="When to use this template">
+                </div>
+                <input type="hidden" id="tmpl_rule_id">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning fw-bold" onclick="submitSaveTemplate()">
+                    <i class="fas fa-bookmark me-1"></i>Save Template
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 {# ====================== MODALS ====================== #}
@@ -1394,5 +1427,49 @@ function exportYaml(e) {
     if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
     window.location = `/api/v1/export/folders/yaml?device_group_id=${encodeURIComponent(devId)}`;
 }
+
+/* ============================================================
+   SAVE AS TEMPLATE
+   ============================================================ */
+let _tmplModal = null;
+function getTmplModal() {
+    return _tmplModal ||= new bootstrap.Modal(document.getElementById('saveTemplateModal'));
+}
+
+function openSaveTemplate() {
+    const ids = getSelectedIds();
+    if (ids.length !== 1) {
+        showToast('Select exactly one rule to save as template', 'warning');
+        return;
+    }
+    const name = [...document.querySelectorAll('.rule-chk:checked')][0]?.dataset?.name || '';
+    document.getElementById('tmpl_rule_id').value = ids[0];
+    document.getElementById('tmpl_name').value = name;
+    document.getElementById('tmpl_desc').value = '';
+    getTmplModal().show();
+    setTimeout(() => document.getElementById('tmpl_name').select(), 300);
+}
+
+async function submitSaveTemplate() {
+    const name   = document.getElementById('tmpl_name').value.trim();
+    const desc   = document.getElementById('tmpl_desc').value.trim();
+    const ruleId = document.getElementById('tmpl_rule_id').value;
+    if (!name) { showToast('Template name is required', 'warning'); return; }
+
+    try {
+        const r = await fetch('/api/v1/templates/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_id: ruleId, name, description: desc})
+        });
+        const data = await r.json();
+        if (!r.ok || data.status === 'error') throw new Error(data.message || 'Unknown error');
+        getTmplModal().hide();
+        showToast(`Template "${name}" saved`, 'success');
+    } catch(e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+document.getElementById('tmpl_name').addEventListener('keydown', e => { if (e.key === 'Enter') submitSaveTemplate(); });
 </script>
 {% endblock %}

@@ -328,6 +328,16 @@ class NGFWClient:
             logger.error(f"Error moving NAT rule {rule_id}: {e}")
             return False
 
+    async def update_nat_rule(self, payload: Dict[str, Any]) -> bool:
+        url = f"{self.base_url}/api/v2/UpdateNatRule"
+        try:
+            resp = await self.client.post(url, json=payload)
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"UpdateNatRule failed: {e}")
+            return False
+
     # ------------------------------------------------------------------ Logs & Stats
 
     async def list_log_collectors(self) -> List[Dict[str, Any]]:

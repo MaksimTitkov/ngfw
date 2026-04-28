@@ -91,6 +91,18 @@ class CachedLog(Base):
     )
 
 
+class RuleTemplate(Base):
+    """User-saved rule templates — stored locally, independent of NGFW."""
+    __tablename__ = "rule_templates"
+
+    id          = Column(String, primary_key=True)
+    name        = Column(String(256), nullable=False)
+    description = Column(String(512), nullable=True)
+    created_by  = Column(String(128), nullable=True)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    data        = Column(JSON, nullable=False)   # rule data snapshot
+
+
 class ChangeLog(Base):
     """Audit trail of every create/update/delete action in NGFW Manager."""
     __tablename__ = "change_log"

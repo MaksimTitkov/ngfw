@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete as sa_delete, cast, Text, or_
 from sqlalchemy.orm import selectinload
 from app.db.session import get_db
-from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog
+from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog, RuleTemplate
 from app.services.deploy_service import DeployService
 from app.services.analyzer_service import run_analysis
 from app.services.sync_service import SyncService
@@ -1215,6 +1215,24 @@ class NatToggleRequest(BaseModel):
     enabled: bool
 
 
+class NatUpdateRequest(BaseModel):
+    rule_id: str          # local DB id
+    name: str
+    description: str = ""
+    enabled: bool = True
+    src_zone_ids: List[str] = []
+    dst_zone_ids: List[str] = []
+    src_net_ids: List[str] = []
+    dst_net_ids: List[str] = []
+    service_ids: List[str] = []
+    snat_type: str = "NAT_SOURCE_TRANSLATION_TYPE_NONE"
+    src_addr_type: str = "NAT_SOURCE_TRANSLATION_ADDRESS_TYPE_NONE"
+    src_translated_ids: List[str] = []
+    dnat_type: str = "NAT_DESTINATION_TRANSLATION_TYPE_NONE"
+    dst_translated_ids: List[str] = []
+    dst_translated_port: int = 0
+
+
 @router.get("/nat", response_class=HTMLResponse)
 async def nat_page(request: Request, folder_id: str = Query(None), db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
@@ -1464,6 +1482,61 @@ async def toggle_nat_rule(request: Request, data: NatToggleRequest, db: AsyncSes
         await client.close()
 
 
+@router.post("/api/v1/nat/rules/update")
+async def update_nat_rule_endpoint(request: Request, data: NatUpdateRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    rule = await db.get(CachedNatRule, data.rule_id)
+    if not rule:
+        return JSONResponse({"status": "error", "message": "NAT rule not found"}, status_code=404)
+
+    def build_field(ids):
+        if not ids:
+            return {"kind": "RULE_KIND_ANY", "objects": {"array": []}}
+        return {"kind": "RULE_KIND_LIST", "objects": {"array": list(ids)}}
+
+    existing = rule.data or {}
+    api_payload: Dict[str, Any] = {
+        "id": rule.ext_id,
+        "name": data.name,
+        "description": data.description,
+        "enabled": data.enabled,
+        "srcTranslationType": data.snat_type,
+        "srcTranslationAddrType": data.src_addr_type,
+        "dstTranslationType": data.dnat_type,
+        "sourceZone":      build_field(data.src_zone_ids),
+        "sourceAddr":      build_field(data.src_net_ids),
+        "destinationZone": build_field(data.dst_zone_ids),
+        "destinationAddr": build_field(data.dst_net_ids),
+        "service":         build_field(data.service_ids),
+    }
+    if data.src_translated_ids:
+        api_payload["srcTranslatedAddress"] = data.src_translated_ids
+    if data.dst_translated_ids:
+        api_payload["dstTranslatedAddress"] = data.dst_translated_ids
+    if data.dst_translated_port:
+        api_payload["dstTranslatedPort"] = data.dst_translated_port
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    try:
+        await client.login(user['username'], user['password'])
+        ok = await client.update_nat_rule(api_payload)
+        if not ok:
+            return JSONResponse({"status": "error", "message": "NGFW returned error"}, status_code=500)
+
+        rule.name = data.name
+        rule.data = {**existing, **api_payload}
+        await _log_change(db, user, "update", "nat_rule", data.name, rule.ext_id,
+                          rule.device_group_id or "")
+        await db.commit()
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        logger.error(f"NAT update failed: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
 
 
 
@@ -3384,3 +3457,172 @@ async def export_folders_yaml(
         media_type="text/yaml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Rule Templates — Phase 7.4
+# ---------------------------------------------------------------------------
+
+class TemplateSaveRequest(BaseModel):
+    rule_id: str          # local CachedRule id to snapshot
+    name: str
+    description: str = ""
+
+
+class TemplateApplyRequest(BaseModel):
+    template_id: str
+    folder_id: str        # target folder (CachedRule folder)
+
+
+class TemplateDeleteRequest(BaseModel):
+    template_ids: List[str]
+
+
+@router.get("/templates", response_class=HTMLResponse)
+async def templates_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    meta_res = await db.execute(select(DeviceMeta))
+    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+
+    folders_res = await db.execute(select(Folder).order_by(Folder.device_group_id, Folder.sort_order))
+    all_folders = folders_res.scalars().all()
+
+    orm_tree: Dict[str, Any] = {}
+    for f in all_folders:
+        gid = f.device_group_id or "unknown"
+        if gid == "global":
+            continue
+        dev_name = device_names.get(gid, f"Device {gid[:8]}")
+        if gid not in orm_tree:
+            orm_tree[gid] = {"name": dev_name, "id": gid, "sections": {"pre": [], "post": [], "default": []}}
+        f.rules_count = 0
+        sec = f.section.lower() if f.section and f.section.lower() in ('pre', 'post', 'default') else 'pre'
+        orm_tree[gid]["sections"][sec].append(f)
+
+    tmpl_res = await db.execute(select(RuleTemplate).order_by(RuleTemplate.created_at.desc()))
+    templates_list = []
+    for t in tmpl_res.scalars().all():
+        d = t.data or {}
+        action = d.get("action", "")
+        action = action.split("_")[-1].upper() if "_" in action else action.upper()
+        templates_list.append({
+            "id":          t.id,
+            "name":        t.name,
+            "description": t.description or "",
+            "created_by":  t.created_by or "",
+            "created_at":  t.created_at.strftime("%Y-%m-%d %H:%M") if t.created_at else "",
+            "action":      action,
+            "data":        d,
+        })
+
+    js_tree: Dict[str, Any] = {}
+    for gid, info in orm_tree.items():
+        js_tree[gid] = {
+            "name": info["name"],
+            "sections": {
+                sec: [{"id": f.id, "name": f.name} for f in flist]
+                for sec, flist in info["sections"].items()
+            }
+        }
+
+    return templates.TemplateResponse("templates.html", {
+        "request":           request,
+        "tree":              orm_tree,
+        "user":              user,
+        "selected_folder_id": None,
+        "current_device_id": None,
+        "templates":         templates_list,
+        "js_tree":           js_tree,
+    })
+
+
+@router.post("/api/v1/templates/save")
+async def save_template(request: Request, data: TemplateSaveRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    rule = await db.get(CachedRule, data.rule_id)
+    if not rule:
+        return JSONResponse({"status": "error", "message": "Rule not found"}, status_code=404)
+
+    # Strip position/id fields from snapshot; keep policy fields
+    snap = {k: v for k, v in (rule.data or {}).items()
+            if k not in ("id", "position", "globalPosition")}
+    snap["name"] = data.name  # template inherits the new name
+
+    tmpl = RuleTemplate(
+        id=str(uuid.uuid4()),
+        name=data.name,
+        description=data.description,
+        created_by=user.get("username", ""),
+        data=snap,
+    )
+    db.add(tmpl)
+    await db.commit()
+    return JSONResponse({"status": "ok", "id": tmpl.id, "name": tmpl.name})
+
+
+@router.post("/api/v1/templates/apply")
+async def apply_template(request: Request, data: TemplateApplyRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    tmpl = await db.get(RuleTemplate, data.template_id)
+    if not tmpl:
+        return JSONResponse({"status": "error", "message": "Template not found"}, status_code=404)
+
+    folder = await db.get(Folder, data.folder_id)
+    if not folder:
+        return JSONResponse({"status": "error", "message": "Folder not found"}, status_code=404)
+
+    snap = dict(tmpl.data or {})
+    section = (folder.section or "pre").lower()
+    snap["name"] = tmpl.name
+    snap["deviceGroupId"] = folder.device_group_id
+    snap["precedence"] = section
+    snap["position"] = 1
+    snap.pop("id", None)
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    try:
+        await client.login(user['username'], user['password'])
+        res = await client.create_rule(snap)
+        ext_id = res.get("id") or res.get("securityRule", {}).get("id")
+        if not ext_id:
+            raise RuntimeError(f"API did not return rule ID: {res}")
+
+        stmt = select(func.max(CachedRule.folder_sort_order)).where(CachedRule.folder_id == data.folder_id)
+        max_pos = (await db.execute(stmt)).scalar() or 0
+
+        db.add(CachedRule(
+            id=str(uuid.uuid4()),
+            ext_id=ext_id,
+            name=tmpl.name,
+            folder_id=data.folder_id,
+            folder_sort_order=max_pos + 1,
+            data={**snap, "id": ext_id},
+        ))
+        await _log_change(db, user, "create", "rule", tmpl.name, ext_id,
+                          folder.device_group_id, f"From template: {tmpl.name}")
+        await db.commit()
+        return JSONResponse({"status": "ok", "ext_id": ext_id})
+    except Exception as e:
+        logger.error(f"Template apply failed: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
+@router.post("/api/v1/templates/delete")
+async def delete_templates(request: Request, data: TemplateDeleteRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+    await db.execute(sa_delete(RuleTemplate).where(RuleTemplate.id.in_(data.template_ids)))
+    await db.commit()
+    return JSONResponse({"status": "ok", "deleted": len(data.template_ids)})
