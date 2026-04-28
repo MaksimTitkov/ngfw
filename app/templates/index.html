@@ -32,6 +32,26 @@
                 <i class="fas fa-cubes"></i> Objects
             </a>
             <div class="topbar-sep"></div>
+            <div style="position:relative" id="exportDropdown">
+                <button class="btn-top" onclick="toggleExportDD()" title="Export policy">
+                    <i class="fas fa-file-export"></i> Export
+                </button>
+                <div id="exportDDMenu" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;
+                     background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:8px;
+                     padding:6px 0;min-width:200px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                    <div style="padding:4px 12px 6px;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Export</div>
+                    <a id="exportXlsxLink" href="#" onclick="exportXlsx(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-file-excel" style="color:#22c55e;width:14px"></i>Rules → Excel
+                    </a>
+                    <a id="exportYamlLink" href="#" onclick="exportYaml(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-file-code" style="color:#f59e0b;width:14px"></i>Folders → YAML
+                    </a>
+                </div>
+            </div>
             <a href="https://www.tbank.ru/cf/CyEG1GUDMg" target="_blank" class="btn-top" style="text-decoration:none;color:#f59e0b" title="Поддержать разработку">
                 <i class="fas fa-heart"></i> Поддержать
             </a>
@@ -1344,5 +1364,35 @@ async function submitQuickCreate() {
     }
 }
 document.getElementById('qc_name').addEventListener('keydown', e => { if (e.key === 'Enter') submitQuickCreate(); });
+
+/* ============================================================
+   EXPORT DROPDOWN
+   ============================================================ */
+function toggleExportDD() {
+    const m = document.getElementById('exportDDMenu');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+    if (!e.target.closest('#exportDropdown')) {
+        const m = document.getElementById('exportDDMenu');
+        if (m) m.style.display = 'none';
+    }
+});
+
+function exportXlsx(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
+    window.location = `/api/v1/export/rules/xlsx?device_group_id=${encodeURIComponent(devId)}`;
+}
+
+function exportYaml(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
+    window.location = `/api/v1/export/folders/yaml?device_group_id=${encodeURIComponent(devId)}`;
+}
 </script>
 {% endblock %}

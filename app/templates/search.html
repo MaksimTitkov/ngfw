@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Search — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    <div class="app-main">
+
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-magnifying-glass" style="color:#3b82f6;margin-right:6px"></i>
+                Smart Search
+            </span>
+            <div class="topbar-sep"></div>
+            <span style="font-size:11px;color:#475569">Ctrl+K anywhere to open</span>
+        </div>
+
+        <div class="app-content" style="padding:20px">
+
+            {# ---- Search bar ---- #}
+            <form method="get" action="/search">
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+                            background:#1e293b;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:16px 18px;margin-bottom:20px">
+
+                    <div style="position:relative;flex:1;min-width:280px">
+                        <i class="fas fa-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px"></i>
+                        <input type="text" name="q" id="srchInput" value="{{ q }}" autofocus
+                               placeholder="IP address, CIDR, port number, rule name…"
+                               style="width:100%;padding:9px 12px 9px 36px;border:1px solid rgba(255,255,255,.1);border-radius:8px;
+                                      background:#0f172a;color:#e2e8f0;font-size:14px;outline:none"
+                               onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='rgba(255,255,255,.1)'">
+                    </div>
+
+                    {# Mode selector #}
+                    <div style="display:flex;gap:4px">
+                        {% for val, lbl, icon in [('any','Any','fa-asterisk'),('name','Name','fa-id-badge'),
+                                                   ('ip','IP','fa-network-wired'),('port','Port','fa-plug')] %}
+                        <button type="submit" name="mode" value="{{ val }}"
+                                style="padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;border:none;cursor:pointer;transition:.15s;
+                                       {% if mode == val %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#64748b{% endif %}">
+                            <i class="fas {{ icon }} me-1"></i>{{ lbl }}
+                        </button>
+                        {% endfor %}
+                    </div>
+
+                    {# Device filter #}
+                    <select name="device_id" style="padding:7px 12px;border-radius:7px;font-size:12px;
+                                                    background:#0f172a;border:1px solid rgba(255,255,255,.1);color:#e2e8f0">
+                        <option value="">All devices</option>
+                        {% for d in devices %}
+                        <option value="{{ d.device_id }}" {% if device_id == d.device_id %}selected{% endif %}>
+                            {{ d.name or d.device_id[:20] }}
+                        </option>
+                        {% endfor %}
+                    </select>
+
+                    <button type="submit"
+                            style="padding:8px 22px;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
+                        Search
+                    </button>
+                </div>
+            </form>
+
+            {# ---- Results ---- #}
+            {% if q %}
+
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                <span style="color:#94a3b8;font-size:13px">
+                    {% if results %}
+                    <b style="color:#e2e8f0">{{ results|length }}</b> result(s) for
+                    <b style="color:#60a5fa">{{ q }}</b>
+                    {% if device_id %} on <b style="color:#e2e8f0">{{ device_id[:20] }}</b>{% endif %}
+                    {% else %}
+                    No results for <b style="color:#60a5fa">{{ q }}</b>
+                    {% endif %}
+                </span>
+                {% if results %}
+                <span style="background:rgba(59,130,246,.15);color:#60a5fa;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px">
+                    {{ mode.upper() }} mode
+                </span>
+                {% endif %}
+            </div>
+
+            {% if results %}
+            <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
+                <table class="rules-table" style="width:100%">
+                    <thead>
+                        <tr>
+                            <th style="width:32%">Rule Name</th>
+                            <th style="width:70px">Action</th>
+                            <th style="width:60px">Status</th>
+                            <th>Folder</th>
+                            <th>Device</th>
+                            <th>Match</th>
+                            <th style="width:60px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in results %}
+                        <tr onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                            onmouseout="this.style.background=''">
+                            <td>
+                                <div style="font-weight:600;font-size:13px;color:#e2e8f0">{{ r.name }}</div>
+                            </td>
+                            <td>
+                                <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;
+                                    {% if r.action == 'ALLOW' or r.action == 'PASS' %}background:rgba(34,197,94,.15);color:#22c55e
+                                    {% elif r.action in ('DENY','DROP') %}background:rgba(239,68,68,.15);color:#ef4444
+                                    {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}">
+                                    {{ r.action }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if r.enabled %}
+                                <span style="color:#22c55e;font-size:11px;font-weight:600"><i class="fas fa-circle" style="font-size:8px"></i> ON</span>
+                                {% else %}
+                                <span style="color:#64748b;font-size:11px;font-weight:600"><i class="fas fa-circle" style="font-size:8px"></i> OFF</span>
+                                {% endif %}
+                            </td>
+                            <td style="color:#94a3b8;font-size:12px">
+                                <i class="fas fa-folder" style="font-size:10px;margin-right:4px;color:#475569"></i>
+                                {{ r.folder or '—' }}
+                            </td>
+                            <td style="color:#94a3b8;font-size:12px">{{ r.device }}</td>
+                            <td style="color:#64748b;font-size:11px;font-style:italic">{{ r.match }}</td>
+                            <td style="text-align:right;padding-right:10px">
+                                {% if r.folder_id %}
+                                <a href="/?folder_id={{ r.folder_id }}"
+                                   style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:5px;
+                                          background:rgba(59,130,246,.1);color:#60a5fa;font-size:11px;text-decoration:none;font-weight:600"
+                                   title="Go to rule">
+                                    <i class="fas fa-arrow-right" style="font-size:9px"></i>
+                                </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if results|length >= 300 %}
+            <div style="text-align:center;color:#64748b;font-size:12px;margin-top:10px">
+                <i class="fas fa-info-circle"></i> Results capped at 300 — refine your query
+            </div>
+            {% endif %}
+
+            {% else %}
+            <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:48px 20px;text-align:center;color:#475569">
+                <i class="fas fa-magnifying-glass" style="font-size:36px;opacity:.2;display:block;margin-bottom:14px"></i>
+                <div style="font-size:14px;margin-bottom:6px">No matching rules found</div>
+                <div style="font-size:12px">Try a different query or mode</div>
+            </div>
+            {% endif %}
+
+            {% else %}
+            {# Landing state: tips #}
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
+
+                {% set tips = [
+                    ('fa-network-wired','#3b82f6','IP / Subnet Search',
+                     'Search for rules where a specific IP or CIDR subnet is referenced in source or destination.',
+                     '10.16.1.5  ·  192.168.0.0/24'),
+                    ('fa-plug','#8b5cf6','Port Search',
+                     'Find all rules that allow or deny a specific destination port.',
+                     '443  ·  8080  ·  22'),
+                    ('fa-id-badge','#06b6d4','Rule Name Search',
+                     'Partial-match search across all rule names in the local cache.',
+                     'web-server  ·  deny-all'),
+                    ('fa-asterisk','#10b981','Any Mode',
+                     'Combines name + IP + port search simultaneously — broadest results.',
+                     'any term works'),
+                ] %}
+
+                {% for icon, color, title, desc, example in tips %}
+                <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:18px">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                        <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+                                    background:rgba({{ color|replace('#','') }}, .15)">
+                            <i class="fas {{ icon }}" style="color:{{ color }};font-size:15px"></i>
+                        </div>
+                        <span style="color:#e2e8f0;font-weight:600;font-size:14px">{{ title }}</span>
+                    </div>
+                    <p style="color:#64748b;font-size:12px;margin:0 0 10px">{{ desc }}</p>
+                    <div style="background:#0f172a;border-radius:6px;padding:6px 10px;font-family:monospace;font-size:12px;color:#94a3b8">
+                        {{ example }}
+                    </div>
+                </div>
+                {% endfor %}
+
+            </div>
+            {% endif %}
+
+        </div>{# /app-content #}
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+{# ============================================================
+   CTRL+K QUICK SEARCH MODAL (also inlined in base.html via JS)
+   ============================================================ #}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        document.getElementById('srchInput')?.focus();
+    }
+});
+</script>
+{% endblock %}

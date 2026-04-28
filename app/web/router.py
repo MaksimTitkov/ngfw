@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Depends, Query, Form, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete as sa_delete
+from sqlalchemy import select, func, delete as sa_delete, cast, Text, or_
 from sqlalchemy.orm import selectinload
 from app.db.session import get_db
 from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog
@@ -20,6 +20,10 @@ import json
 import csv
 import io
 from datetime import datetime, timezone, timedelta
+import yaml
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -2932,3 +2936,451 @@ async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
         "modified_rules": modified_rules,
         "alerts":         alerts,
     })
+
+
+# ---------------------------------------------------------------------------
+# Smart Rule Search — Phase 7.10 + Object Usage Map — Phase 7.5
+# ---------------------------------------------------------------------------
+
+class SearchRequest(BaseModel):
+    query: str
+    mode: str = "any"      # any | name | ip | port | object
+    device_group_id: str = ""
+
+
+def _rule_action_norm(data: Dict) -> str:
+    raw = data.get("action", "")
+    return raw.split("_")[-1].upper() if "_" in raw else raw.upper()
+
+
+def _extract_obj_ids_from_rule_data(data: Dict) -> set:
+    """Collect all object UUIDs referenced in a rule's field values."""
+    ids = set()
+    for field_key in ("sourceAddr", "destinationAddr", "service",
+                      "sourceZone", "destinationZone"):
+        field = data.get(field_key)
+        if not field:
+            continue
+        objects = field.get("objects", [])
+        if isinstance(objects, dict):
+            objects = objects.get("array", [])
+        for item in objects:
+            if isinstance(item, str):
+                ids.add(item)
+            elif isinstance(item, dict):
+                if "id" in item:
+                    ids.add(item["id"])
+                else:
+                    for v in item.values():
+                        if isinstance(v, dict) and "id" in v:
+                            ids.add(v["id"])
+    return ids
+
+
+async def _do_search(
+    db: AsyncSession,
+    query: str,
+    mode: str,
+    device_group_id: str,
+    device_names: Dict[str, str],
+    folder_map: Dict[str, Any],   # folder_id → {name, device_group_id}
+) -> List[Dict]:
+    """Core search logic. Returns list of result dicts."""
+    q = query.strip()
+    if not q:
+        return []
+
+    results: List[Dict] = []
+    seen_ids: set = set()
+
+    def _folder_info(folder_id):
+        fi = folder_map.get(folder_id or "", {})
+        return fi.get("name", ""), fi.get("device_group_id", "")
+
+    def _add_rule(rule, match_reason):
+        if rule.id in seen_ids:
+            return
+        seen_ids.add(rule.id)
+        folder_name, gid = _folder_info(rule.folder_id)
+        d = rule.data or {}
+        results.append({
+            "type":        "rule",
+            "id":          rule.id,
+            "ext_id":      rule.ext_id,
+            "name":        rule.name,
+            "enabled":     d.get("enabled", True),
+            "action":      _rule_action_norm(d),
+            "folder":      folder_name,
+            "device":      device_names.get(gid, gid[:12] if gid else ""),
+            "device_id":   gid,
+            "match":       match_reason,
+            "folder_id":   rule.folder_id or "",
+        })
+
+    # Base rule query (filter by device if specified)
+    base_rule_stmt = select(CachedRule)
+    if device_group_id:
+        # filter by folders of that device
+        dev_folder_ids = [fid for fid, fi in folder_map.items()
+                         if fi.get("device_group_id") == device_group_id]
+        if dev_folder_ids:
+            base_rule_stmt = base_rule_stmt.where(CachedRule.folder_id.in_(dev_folder_ids))
+        else:
+            return []
+
+    # --- NAME search ---
+    if mode in ("any", "name"):
+        stmt = base_rule_stmt.where(CachedRule.name.ilike(f"%{q}%"))
+        for r in (await db.execute(stmt)).scalars().all():
+            _add_rule(r, f"Name matches «{q}»")
+
+    # --- OBJECT ext_id search (Object Usage Map) ---
+    if mode == "object":
+        all_rules = (await db.execute(base_rule_stmt)).scalars().all()
+        for r in all_rules:
+            ids = _extract_obj_ids_from_rule_data(r.data or {})
+            if q in ids:
+                _add_rule(r, f"References object {q[:16]}…")
+        return results[:200]
+
+    # --- IP / PORT search — first resolve matching objects ---
+    matching_obj_ids: set = set()
+
+    if mode in ("any", "ip"):
+        obj_stmt = select(CachedObject).where(
+            CachedObject.category == "net",
+            cast(CachedObject.data, Text).ilike(f"%{q}%"),
+        )
+        if device_group_id:
+            obj_stmt = obj_stmt.where(
+                or_(CachedObject.device_group_id == device_group_id,
+                    CachedObject.device_group_id == "global")
+            )
+        for o in (await db.execute(obj_stmt)).scalars().all():
+            matching_obj_ids.add(o.ext_id)
+
+    if mode in ("any", "port"):
+        try:
+            port_num = int(q)
+            obj_stmt = select(CachedObject).where(
+                CachedObject.category == "service",
+                cast(CachedObject.data, Text).ilike(f"%{port_num}%"),
+            )
+            if device_group_id:
+                obj_stmt = obj_stmt.where(
+                    or_(CachedObject.device_group_id == device_group_id,
+                        CachedObject.device_group_id == "global")
+                )
+            for o in (await db.execute(obj_stmt)).scalars().all():
+                matching_obj_ids.add(o.ext_id)
+        except ValueError:
+            pass  # not a number, skip port search
+
+    # Now find rules referencing those objects
+    if matching_obj_ids:
+        all_rules = (await db.execute(base_rule_stmt)).scalars().all()
+        for r in all_rules:
+            ids = _extract_obj_ids_from_rule_data(r.data or {})
+            common = ids & matching_obj_ids
+            if common:
+                _add_rule(r, f"References matching object(s)")
+
+    return results[:300]
+
+
+@router.get("/search", response_class=HTMLResponse)
+async def search_page(
+    request: Request,
+    q: str = Query(""),
+    mode: str = Query("any"),
+    device_id: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    meta_res = await db.execute(select(DeviceMeta))
+    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+
+    folders_res = await db.execute(select(Folder).order_by(Folder.device_group_id, Folder.sort_order))
+    all_folders = folders_res.scalars().all()
+
+    orm_tree: Dict[str, Any] = {}
+    folder_map: Dict[str, Any] = {}
+    for f in all_folders:
+        gid = f.device_group_id or "unknown"
+        if gid == "global":
+            continue
+        folder_map[f.id] = {"name": f.name, "device_group_id": gid}
+        dev_name = device_names.get(gid, f"Device {gid[:8]}")
+        if gid not in orm_tree:
+            orm_tree[gid] = {"name": dev_name, "id": gid, "sections": {"pre": [], "post": [], "default": []}}
+        f.rules_count = 0
+        sec = f.section.lower() if f.section and f.section.lower() in ('pre', 'post', 'default') else 'pre'
+        orm_tree[gid]["sections"][sec].append(f)
+
+    results = []
+    if q:
+        results = await _do_search(db, q, mode, device_id, device_names, folder_map)
+
+    devices_list = [{"device_id": gid, "name": info["name"]} for gid, info in orm_tree.items()]
+
+    return templates.TemplateResponse("search.html", {
+        "request":           request,
+        "tree":              orm_tree,
+        "user":              user,
+        "selected_folder_id": None,
+        "current_device_id": None,
+        "q":                 q,
+        "mode":              mode,
+        "device_id":         device_id,
+        "devices":           devices_list,
+        "results":           results,
+    })
+
+
+@router.post("/api/v1/search")
+async def search_api(data: SearchRequest, db: AsyncSession = Depends(get_db)):
+    meta_res = await db.execute(select(DeviceMeta))
+    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+
+    folders_res = await db.execute(select(Folder))
+    folder_map = {
+        f.id: {"name": f.name, "device_group_id": f.device_group_id or ""}
+        for f in folders_res.scalars().all()
+        if (f.device_group_id or "") != "global"
+    }
+
+    results = await _do_search(
+        db, data.query, data.mode, data.device_group_id,
+        device_names, folder_map
+    )
+    return JSONResponse({"status": "ok", "results": results, "count": len(results)})
+
+
+@router.get("/api/v1/object/usage")
+async def object_usage(ext_id: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """Return all rules that reference the given object ext_id."""
+    meta_res = await db.execute(select(DeviceMeta))
+    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+
+    folders_res = await db.execute(select(Folder))
+    folder_map = {
+        f.id: {"name": f.name, "device_group_id": f.device_group_id or ""}
+        for f in folders_res.scalars().all()
+        if (f.device_group_id or "") != "global"
+    }
+
+    results = await _do_search(db, ext_id, "object", "", device_names, folder_map)
+    return JSONResponse({"status": "ok", "results": results, "count": len(results)})
+
+
+# ---------------------------------------------------------------------------
+# Export — Phase 7.8
+# ---------------------------------------------------------------------------
+
+def _rule_action_color(action: str) -> str:
+    """Return hex color for action badge in Excel."""
+    a = action.upper()
+    if a in ("ALLOW", "PASS"):
+        return "FF22C55E"  # green
+    if a in ("DENY", "DROP"):
+        return "FFEF4444"  # red
+    return "FF94A3B8"      # gray
+
+
+@router.get("/api/v1/export/rules/xlsx")
+async def export_rules_xlsx(
+    device_group_id: str = Query(...),
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export all Security Rules for a device to a formatted Excel file."""
+    # Load folder + rule data
+    folders_stmt = select(Folder).where(Folder.device_group_id == device_group_id).order_by(Folder.sort_order)
+    folders = (await db.execute(folders_stmt)).scalars().all()
+    folder_map = {f.id: f for f in folders}
+
+    if not folders:
+        return JSONResponse({"error": "No folders for this device"}, status_code=404)
+
+    folder_ids = [f.id for f in folders]
+    rules_stmt = select(CachedRule).where(CachedRule.folder_id.in_(folder_ids)).order_by(
+        CachedRule.folder_id, CachedRule.folder_sort_order
+    )
+    rules = (await db.execute(rules_stmt)).scalars().all()
+
+    # Object cache for name resolution
+    obj_stmt = select(CachedObject).where(
+        or_(CachedObject.device_group_id == device_group_id, CachedObject.device_group_id == "global")
+    )
+    obj_map = {o.ext_id: o.name for o in (await db.execute(obj_stmt)).scalars().all()}
+
+    def _resolve_ids(field: Dict) -> str:
+        if not field:
+            return "Any"
+        kind = field.get("kind", "")
+        if "ANY" in kind:
+            return "Any"
+        objects = field.get("objects", [])
+        if isinstance(objects, dict):
+            objects = objects.get("array", [])
+        names = []
+        for item in objects:
+            if isinstance(item, str):
+                names.append(obj_map.get(item, item[:8]))
+            elif isinstance(item, dict):
+                oid = item.get("id") or next(
+                    (v.get("id") for v in item.values() if isinstance(v, dict)), None
+                )
+                names.append(obj_map.get(oid, oid[:8] if oid else "?") if oid else "?")
+        return ", ".join(names) if names else "Any"
+
+    # Build workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Security Rules"
+
+    # Styles
+    hdr_font   = Font(name="Calibri", bold=True, color="FFFFFFFF", size=10)
+    hdr_fill   = PatternFill("solid", fgColor="FF0F172A")
+    wrap_align = Alignment(wrap_text=True, vertical="top")
+    ctr_align  = Alignment(horizontal="center", vertical="top")
+
+    headers = ["#", "Folder", "Rule Name", "Enabled", "Action",
+               "Src Zone", "Source", "Dst Zone", "Destination", "Service", "Comment"]
+    col_widths = [5, 18, 30, 8, 8, 14, 30, 14, 30, 20, 30]
+
+    for col, (h, w) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = hdr_font
+        cell.fill = hdr_fill
+        cell.alignment = ctr_align
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    ws.row_dimensions[1].height = 18
+    ws.freeze_panes = "A2"
+
+    row_idx = 2
+    for i, rule in enumerate(rules, 1):
+        d = rule.data or {}
+        action_raw = d.get("action", "")
+        action = action_raw.split("_")[-1].upper() if "_" in action_raw else action_raw.upper()
+        enabled = d.get("enabled", True)
+
+        folder_name = folder_map.get(rule.folder_id, None)
+        folder_str  = folder_name.name if folder_name else ""
+
+        row_data = [
+            i,
+            folder_str,
+            rule.name or "",
+            "Yes" if enabled else "No",
+            action,
+            _resolve_ids(d.get("sourceZone")),
+            _resolve_ids(d.get("sourceAddr")),
+            _resolve_ids(d.get("destinationZone")),
+            _resolve_ids(d.get("destinationAddr")),
+            _resolve_ids(d.get("service")),
+            d.get("description", "") or "",
+        ]
+
+        # Alternating row background
+        row_fill = PatternFill("solid", fgColor="FF1E293B" if i % 2 == 0 else "FF0F172A")
+
+        for col, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col, value=val)
+            cell.fill = row_fill
+            cell.alignment = wrap_align
+            cell.font = Font(name="Calibri", size=10, color="FFE2E8F0")
+
+        # Color the Action cell
+        action_cell = ws.cell(row=row_idx, column=5)
+        action_cell.fill = PatternFill("solid", fgColor=_rule_action_color(action))
+        action_cell.font = Font(name="Calibri", bold=True, size=10, color="FFFFFFFF")
+        action_cell.alignment = ctr_align
+
+        ws.row_dimensions[row_idx].height = 30
+        row_idx += 1
+
+    # Add auto-filter
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
+
+    # Serialize to bytes
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    meta_res = await db.execute(select(DeviceMeta).where(DeviceMeta.device_id == device_group_id))
+    dev = meta_res.scalar_one_or_none()
+    dev_name = (dev.name if dev else device_group_id[:12]).replace(" ", "_")
+    filename = f"rules_{dev_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/api/v1/export/folders/yaml")
+async def export_folders_yaml(
+    device_group_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export virtual folder structure (including rule ordering) to YAML."""
+    folders_stmt = select(Folder).where(Folder.device_group_id == device_group_id).order_by(Folder.sort_order)
+    folders = (await db.execute(folders_stmt)).scalars().all()
+
+    folder_ids = [f.id for f in folders]
+    rules_stmt = select(CachedRule).where(CachedRule.folder_id.in_(folder_ids)).order_by(
+        CachedRule.folder_id, CachedRule.folder_sort_order
+    )
+    rules = (await db.execute(rules_stmt)).scalars().all()
+
+    # Group rules by folder
+    rules_by_folder: Dict[str, List] = {}
+    for r in rules:
+        rules_by_folder.setdefault(r.folder_id, []).append({
+            "id":    r.id,
+            "ext_id": r.ext_id,
+            "name":  r.name,
+            "sort_order": r.folder_sort_order,
+        })
+
+    meta_res = await db.execute(select(DeviceMeta).where(DeviceMeta.device_id == device_group_id))
+    dev = meta_res.scalar_one_or_none()
+
+    structure = {
+        "device_group_id": device_group_id,
+        "device_name":     dev.name if dev else "",
+        "exported_at":     datetime.now(timezone.utc).isoformat(),
+        "sections": {
+            "pre":     [],
+            "default": [],
+            "post":    [],
+        }
+    }
+
+    for f in folders:
+        section = (f.section or "default").lower()
+        if section not in structure["sections"]:
+            section = "default"
+        structure["sections"][section].append({
+            "id":     f.id,
+            "name":   f.name,
+            "sort_order": f.sort_order,
+            "rules":  rules_by_folder.get(f.id, []),
+        })
+
+    yaml_str = yaml.dump(structure, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    dev_name = (dev.name if dev else device_group_id[:12]).replace(" ", "_")
+    filename = f"folders_{dev_name}_{datetime.now().strftime('%Y%m%d')}.yaml"
+
+    return StreamingResponse(
+        io.BytesIO(yaml_str.encode("utf-8")),
+        media_type="text/yaml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

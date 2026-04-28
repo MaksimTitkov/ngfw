@@ -15,9 +15,135 @@
 
 <div class="toast-stack" id="toastStack"></div>
 
+{# ============================================================
+   CTRL+K QUICK SEARCH OVERLAY
+   ============================================================ #}
+<div id="quickSearchOverlay" style="display:none;position:fixed;inset:0;background:rgba(2,8,23,.75);z-index:10500;
+     align-items:flex-start;justify-content:center;padding-top:120px" onclick="closeQuickSearch(event)">
+    <div style="width:600px;max-width:95vw;background:#1e293b;border:1px solid rgba(255,255,255,.12);
+                border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden">
+        <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.07)">
+            <i class="fas fa-magnifying-glass" style="color:#475569;font-size:16px"></i>
+            <input id="qsInput" type="text" placeholder="Search rules by name, IP or port…"
+                   style="flex:1;background:none;border:none;outline:none;color:#e2e8f0;font-size:15px"
+                   oninput="qsSearch(this.value)" onkeydown="qsKey(event)">
+            <span style="font-size:11px;color:#334155;border:1px solid #334155;border-radius:4px;padding:2px 5px">ESC</span>
+        </div>
+        <div id="qsResults" style="max-height:380px;overflow-y:auto;padding:6px 0"></div>
+        <div style="padding:8px 14px;display:flex;gap:16px;border-top:1px solid rgba(255,255,255,.06)">
+            <span style="font-size:11px;color:#334155"><kbd style="background:#0f172a;border:1px solid #334155;border-radius:3px;padding:1px 5px">↑↓</kbd> navigate</span>
+            <span style="font-size:11px;color:#334155"><kbd style="background:#0f172a;border:1px solid #334155;border-radius:3px;padding:1px 5px">↵</kbd> go to rule</span>
+            <a href="/search" style="margin-left:auto;font-size:11px;color:#3b82f6;text-decoration:none">Advanced search →</a>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <script src="/static/js/picker.js"></script>
+
+<script>
+/* ===================== CTRL+K Quick Search ===================== */
+let _qsTimer = null;
+let _qsCurrent = -1;
+
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        openQuickSearch();
+    }
+    if (e.key === 'Escape') closeQuickSearch();
+});
+
+function openQuickSearch() {
+    const ov = document.getElementById('quickSearchOverlay');
+    ov.style.display = 'flex';
+    const inp = document.getElementById('qsInput');
+    inp.value = '';
+    document.getElementById('qsResults').innerHTML = '';
+    _qsCurrent = -1;
+    setTimeout(() => inp.focus(), 50);
+}
+
+function closeQuickSearch(e) {
+    if (e && e.target !== document.getElementById('quickSearchOverlay')) return;
+    document.getElementById('quickSearchOverlay').style.display = 'none';
+}
+
+function qsSearch(val) {
+    clearTimeout(_qsTimer);
+    if (val.trim().length < 2) {
+        document.getElementById('qsResults').innerHTML = '<div style="padding:14px 16px;color:#475569;font-size:13px">Type at least 2 characters…</div>';
+        return;
+    }
+    _qsTimer = setTimeout(() => _qsFetch(val.trim()), 200);
+}
+
+async function _qsFetch(q) {
+    const box = document.getElementById('qsResults');
+    box.innerHTML = '<div style="padding:14px 16px;color:#475569;font-size:13px"><i class="fas fa-spinner fa-spin me-2"></i>Searching…</div>';
+    try {
+        const r = await fetch('/api/v1/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query: q, mode: 'any', device_group_id: ''})
+        });
+        const data = await r.json();
+        _qsRender(data.results || [], q);
+    } catch {
+        box.innerHTML = '<div style="padding:14px 16px;color:#ef4444;font-size:13px">Search error</div>';
+    }
+}
+
+function _qsRender(results, q) {
+    const box = document.getElementById('qsResults');
+    _qsCurrent = -1;
+    if (!results.length) {
+        box.innerHTML = '<div style="padding:14px 16px;color:#475569;font-size:13px">No results for «' + q + '»</div>';
+        return;
+    }
+    const ACTION_COLORS = {ALLOW:'#22c55e', PASS:'#22c55e', DENY:'#ef4444', DROP:'#ef4444'};
+    box.innerHTML = results.slice(0, 15).map((r, i) => `
+        <a href="${r.folder_id ? '/?folder_id=' + r.folder_id : '/'}"
+           class="qs-item" data-idx="${i}"
+           style="display:flex;align-items:center;gap:10px;padding:9px 16px;text-decoration:none;
+                  border-bottom:1px solid rgba(255,255,255,.04);transition:.1s;cursor:pointer"
+           onmouseover="this.style.background='rgba(255,255,255,.05)';_qsCurrent=${i}"
+           onmouseout="this.style.background=''">
+            <span style="width:44px;font-size:10px;font-weight:700;color:${ACTION_COLORS[r.action]||'#64748b'};flex-shrink:0">${r.action}</span>
+            <span style="flex:1;color:#e2e8f0;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name}</span>
+            <span style="font-size:11px;color:#475569;flex-shrink:0">${r.device || ''}</span>
+            <i class="fas fa-folder" style="font-size:10px;color:#334155;flex-shrink:0"></i>
+            <span style="font-size:11px;color:#334155;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.folder||''}</span>
+        </a>`).join('');
+    if (results.length > 15) {
+        box.innerHTML += `<a href="/search?q=${encodeURIComponent(q)}&mode=any"
+            style="display:block;padding:9px 16px;text-align:center;color:#3b82f6;font-size:12px;text-decoration:none;border-top:1px solid rgba(255,255,255,.06)">
+            View all ${results.length} results →</a>`;
+    }
+}
+
+function qsKey(e) {
+    const items = document.querySelectorAll('.qs-item[data-idx]');
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _qsCurrent = Math.min(_qsCurrent + 1, items.length - 1);
+        items.forEach((el, i) => el.style.background = i === _qsCurrent ? 'rgba(59,130,246,.1)' : '');
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _qsCurrent = Math.max(_qsCurrent - 1, 0);
+        items.forEach((el, i) => el.style.background = i === _qsCurrent ? 'rgba(59,130,246,.1)' : '');
+    } else if (e.key === 'Enter') {
+        if (_qsCurrent >= 0 && items[_qsCurrent]) {
+            window.location = items[_qsCurrent].href;
+        } else {
+            const q = document.getElementById('qsInput').value.trim();
+            if (q) window.location = '/search?q=' + encodeURIComponent(q) + '&mode=any';
+        }
+    }
+}
+</script>
+
 {% block scripts %}{% endblock %}
 
 </body>

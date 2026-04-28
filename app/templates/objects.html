@@ -145,7 +145,13 @@
                             <span style="font-size:11px;color:#94a3b8">Local</span>
                             {% endif %}
                         </td>
-                        <td style="text-align:right;padding-right:10px">
+                        <td style="text-align:right;padding-right:10px;white-space:nowrap">
+                            <a href="/search?q={{ obj.ext_id }}&mode=object" target="_self"
+                               title="Find in Rules"
+                               style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;
+                                      background:rgba(16,185,129,.1);color:#34d399;font-size:11px;font-weight:600;text-decoration:none;margin-right:4px">
+                                <i class="fas fa-sitemap" style="font-size:10px"></i>
+                            </a>
                             {% if type_filter not in ['app', 'user', 'zone'] %}
                             <button class="btn btn-sm" title="Edit"
                                     style="background:rgba(59,130,246,.1);border:none;color:#60a5fa;padding:2px 8px;border-radius:5px;font-size:11px"
