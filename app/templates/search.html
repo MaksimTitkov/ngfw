@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Search — NGFW Manager{% endblock %}
+{% block title %}{{ t('page_search') }} — NGFW Manager{% endblock %}
 
 {% block body %}
 <div class="app-layout">
@@ -11,10 +11,10 @@
         <div class="app-topbar">
             <span class="topbar-title">
                 <i class="fas fa-magnifying-glass" style="color:#3b82f6;margin-right:6px"></i>
-                Smart Search
+                {{ t('page_search') }}
             </span>
             <div class="topbar-sep"></div>
-            <span style="font-size:11px;color:#475569">Ctrl+K anywhere to open</span>
+            <span style="font-size:11px;color:#475569">{{ t('lbl_ctrl_k') }}</span>
         </div>
 
         <div class="app-content" style="padding:20px">
@@ -27,7 +27,7 @@
                     <div style="position:relative;flex:1;min-width:280px">
                         <i class="fas fa-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px"></i>
                         <input type="text" name="q" id="srchInput" value="{{ q }}" autofocus
-                               placeholder="IP address, CIDR, port number, rule name…"
+                               placeholder="{{ t('ph_search') }}"
                                style="width:100%;padding:9px 12px 9px 36px;border:1px solid rgba(255,255,255,.1);border-radius:8px;
                                       background:#0f172a;color:#e2e8f0;font-size:14px;outline:none"
                                onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='rgba(255,255,255,.1)'">
@@ -35,12 +35,12 @@
 
                     {# Mode selector #}
                     <div style="display:flex;gap:4px">
-                        {% for val, lbl, icon in [('any','Any','fa-asterisk'),('name','Name','fa-id-badge'),
-                                                   ('ip','IP','fa-network-wired'),('port','Port','fa-plug')] %}
+                        {% set mode_labels = {'any': t('tip_any_title'), 'name': t('tip_name_title'), 'ip': t('tip_ip_title'), 'port': t('tip_port_title')} %}
+                        {% for val, icon in [('any','fa-asterisk'),('name','fa-id-badge'),('ip','fa-network-wired'),('port','fa-plug')] %}
                         <button type="submit" name="mode" value="{{ val }}"
                                 style="padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;border:none;cursor:pointer;transition:.15s;
                                        {% if mode == val %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#64748b{% endif %}">
-                            <i class="fas {{ icon }} me-1"></i>{{ lbl }}
+                            <i class="fas {{ icon }} me-1"></i>{{ val.upper() }}
                         </button>
                         {% endfor %}
                     </div>
@@ -48,7 +48,7 @@
                     {# Device filter #}
                     <select name="device_id" style="padding:7px 12px;border-radius:7px;font-size:12px;
                                                     background:#0f172a;border:1px solid rgba(255,255,255,.1);color:#e2e8f0">
-                        <option value="">All devices</option>
+                        <option value="">{{ t('lbl_all_devices') }}</option>
                         {% for d in devices %}
                         <option value="{{ d.device_id }}" {% if device_id == d.device_id %}selected{% endif %}>
                             {{ d.name or d.device_id[:20] }}
@@ -58,7 +58,7 @@
 
                     <button type="submit"
                             style="padding:8px 22px;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
-                        Search
+                        {{ t('btn_search') }}
                     </button>
                 </div>
             </form>
@@ -69,16 +69,16 @@
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
                 <span style="color:#94a3b8;font-size:13px">
                     {% if results %}
-                    <b style="color:#e2e8f0">{{ results|length }}</b> result(s) for
+                    <b style="color:#e2e8f0">{{ results|length }}</b> {{ t('lbl_results_for') }}
                     <b style="color:#60a5fa">{{ q }}</b>
-                    {% if device_id %} on <b style="color:#e2e8f0">{{ device_id[:20] }}</b>{% endif %}
+                    {% if device_id %} {{ t('lbl_on') }} <b style="color:#e2e8f0">{{ device_id[:20] }}</b>{% endif %}
                     {% else %}
-                    No results for <b style="color:#60a5fa">{{ q }}</b>
+                    {{ t('lbl_no_results_for') }} <b style="color:#60a5fa">{{ q }}</b>
                     {% endif %}
                 </span>
                 {% if results %}
                 <span style="background:rgba(59,130,246,.15);color:#60a5fa;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px">
-                    {{ mode.upper() }} mode
+                    {{ mode.upper() }} {{ t('lbl_mode') }}
                 </span>
                 {% endif %}
             </div>
@@ -88,12 +88,12 @@
                 <table class="rules-table" style="width:100%">
                     <thead>
                         <tr>
-                            <th style="width:32%">Rule Name</th>
-                            <th style="width:70px">Action</th>
-                            <th style="width:60px">Status</th>
-                            <th>Folder</th>
-                            <th>Device</th>
-                            <th>Match</th>
+                            <th style="width:32%">{{ t('col_rule_name') }}</th>
+                            <th style="width:70px">{{ t('col_action') }}</th>
+                            <th style="width:60px">{{ t('col_status') }}</th>
+                            <th>{{ t('col_folder') }}</th>
+                            <th>{{ t('col_device') }}</th>
+                            <th>{{ t('col_match') }}</th>
                             <th style="width:60px"></th>
                         </tr>
                     </thead>
@@ -143,15 +143,15 @@
 
             {% if results|length >= 300 %}
             <div style="text-align:center;color:#64748b;font-size:12px;margin-top:10px">
-                <i class="fas fa-info-circle"></i> Results capped at 300 — refine your query
+                <i class="fas fa-info-circle"></i> {{ t('lbl_capped') }}
             </div>
             {% endif %}
 
             {% else %}
             <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:48px 20px;text-align:center;color:#475569">
                 <i class="fas fa-magnifying-glass" style="font-size:36px;opacity:.2;display:block;margin-bottom:14px"></i>
-                <div style="font-size:14px;margin-bottom:6px">No matching rules found</div>
-                <div style="font-size:12px">Try a different query or mode</div>
+                <div style="font-size:14px;margin-bottom:6px">{{ t('lbl_no_matching') }}</div>
+                <div style="font-size:12px">{{ t('lbl_try_different') }}</div>
             </div>
             {% endif %}
 
@@ -160,25 +160,16 @@
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
 
                 {% set tips = [
-                    ('fa-network-wired','#3b82f6','IP / Subnet Search',
-                     'Search for rules where a specific IP or CIDR subnet is referenced in source or destination.',
-                     '10.16.1.5  ·  192.168.0.0/24'),
-                    ('fa-plug','#8b5cf6','Port Search',
-                     'Find all rules that allow or deny a specific destination port.',
-                     '443  ·  8080  ·  22'),
-                    ('fa-id-badge','#06b6d4','Rule Name Search',
-                     'Partial-match search across all rule names in the local cache.',
-                     'web-server  ·  deny-all'),
-                    ('fa-asterisk','#10b981','Any Mode',
-                     'Combines name + IP + port search simultaneously — broadest results.',
-                     'any term works'),
+                    ('fa-network-wired','#3b82f6', t('tip_ip_title'),   t('tip_ip_desc'),   t('tip_ip_example')),
+                    ('fa-plug','#8b5cf6',           t('tip_port_title'), t('tip_port_desc'), t('tip_port_example')),
+                    ('fa-id-badge','#06b6d4',       t('tip_name_title'), t('tip_name_desc'), t('tip_name_example')),
+                    ('fa-asterisk','#10b981',        t('tip_any_title'),  t('tip_any_desc'),  t('tip_any_example')),
                 ] %}
 
                 {% for icon, color, title, desc, example in tips %}
                 <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:18px">
                     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-                        <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;
-                                    background:rgba({{ color|replace('#','') }}, .15)">
+                        <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.2)">
                             <i class="fas {{ icon }}" style="color:{{ color }};font-size:15px"></i>
                         </div>
                         <span style="color:#e2e8f0;font-weight:600;font-size:14px">{{ title }}</span>
@@ -197,9 +188,6 @@
     </div>{# /app-main #}
 </div>{# /app-layout #}
 
-{# ============================================================
-   CTRL+K QUICK SEARCH MODAL (also inlined in base.html via JS)
-   ============================================================ #}
 {% endblock %}
 
 {% block scripts %}

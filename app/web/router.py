@@ -8,6 +8,7 @@ from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolde
 from app.services.deploy_service import DeployService
 from app.services.analyzer_service import run_analysis
 from app.services.sync_service import SyncService
+from app.i18n import base_ctx, get_lang
 from app.infrastructure.ngfw_client import NGFWClient
 from fastapi.templating import Jinja2Templates
 from typing import Any, Dict, List, Optional
@@ -249,7 +250,7 @@ def rule_to_dict(rule: CachedRule, object_map: Dict[str, CachedObject]) -> Dict[
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html", base_ctx(request))
 
 @router.post("/login")
 async def login_action(request: Request, host: str = Form(...), username: str = Form(...), password: str = Form(...)):
@@ -268,7 +269,7 @@ async def login_action(request: Request, host: str = Form(...), username: str = 
         
     except Exception as e:
         logger.error(f"Login failed: {e}")
-        return templates.TemplateResponse(request, "login.html", {"request": request, "error": f"Connection failed: {e}"})
+        return templates.TemplateResponse(request, "login.html", base_ctx(request, error=f"Connection failed: {e}"))
 
 @router.get("/logout")
 async def logout(request: Request):
@@ -820,11 +821,11 @@ async def index(request: Request, folder_id: str = Query(None), db: AsyncSession
 
     filtered_tree = {k: v for k, v in tree.items() if k != "global"}
 
-    return templates.TemplateResponse(request, "index.html", {
-        "request": request, "tree": filtered_tree, "dashboard_data": dashboard_data, 
-        "selected_folder_id": selected_fid, "current_device_id": current_device_id,
-        "user": user
-    })
+    return templates.TemplateResponse(request, "index.html", base_ctx(request,
+        tree=filtered_tree, dashboard_data=dashboard_data,
+        selected_folder_id=selected_fid, current_device_id=current_device_id,
+        user=user,
+    ))
 
 @router.get("/objects", response_class=HTMLResponse)
 async def list_objects(request: Request, device_id: str = Query(None), page: int = Query(1), type_filter: str = Query('net'), db: AsyncSession = Depends(get_db)):
@@ -864,11 +865,11 @@ async def list_objects(request: Request, device_id: str = Query(None), page: int
     query = query.order_by(CachedObject.name).offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
     objects = (await db.execute(query)).scalars().all()
 
-    return templates.TemplateResponse(request, "objects.html", {
-        "request": request, "devices": devices, "selected_device_id": selected_device_id,
-        "objects": objects, "type_filter": type_filter, "page": page,
-        "total_pages": total_pages, "total_items": total_items
-    })
+    return templates.TemplateResponse(request, "objects.html", base_ctx(request,
+        devices=devices, selected_device_id=selected_device_id,
+        objects=objects, type_filter=type_filter, page=page,
+        total_pages=total_pages, total_items=total_items,
+    ))
 
 
 # ===========================================================================
@@ -1291,11 +1292,11 @@ async def nat_page(request: Request, folder_id: str = Query(None), db: AsyncSess
 
     filtered_tree = {k: v for k, v in tree.items() if k != "global"}
 
-    return templates.TemplateResponse(request, "nat.html", {
-        "request": request, "tree": filtered_tree, "dashboard_data": dashboard_data,
-        "selected_folder_id": selected_fid, "current_device_id": current_device_id,
-        "user": user,
-    })
+    return templates.TemplateResponse(request, "nat.html", base_ctx(request,
+        tree=filtered_tree, dashboard_data=dashboard_data,
+        selected_folder_id=selected_fid, current_device_id=current_device_id,
+        user=user,
+    ))
 
 
 @router.post("/nat/create_folder")
@@ -1554,11 +1555,9 @@ async def logs_page(request: Request, device_id: str = Query(None), db: AsyncSes
     meta_res = await db.execute(select(DeviceMeta).order_by(DeviceMeta.name))
     all_devices = [d for d in meta_res.scalars().all() if d.device_id != "global"]
     selected = device_id or (all_devices[0].device_id if all_devices else "")
-    return templates.TemplateResponse(request, "logs.html", {
-        "request": request, "user": user,
-        "devices": all_devices, "selected_device_id": selected,
-        "log_ttl_hours": 1,
-    })
+    return templates.TemplateResponse(request, "logs.html", base_ctx(request,
+        user=user, devices=all_devices, selected_device_id=selected, log_ttl_hours=1,
+    ))
 
 
 # ---- Helpers ----
@@ -2035,16 +2034,11 @@ async def policy_page(
     svc_objects  = _filter_objs({"Service", "Service Group"})
     zone_objects = _filter_objs({"Security Zone", "Zone"})
 
-    return templates.TemplateResponse(request, "policy.html", {
-        "request": request,
-        "devices": devices,
-        "selected_device_id": selected_device_id,
-        "active_tab": tab,
-        "user": user,
-        "net_objects": net_objects,
-        "svc_objects": svc_objects,
-        "zone_objects": zone_objects,
-    })
+    return templates.TemplateResponse(request, "policy.html", base_ctx(request,
+        devices=devices, selected_device_id=selected_device_id,
+        active_tab=tab, user=user,
+        net_objects=net_objects, svc_objects=svc_objects, zone_objects=zone_objects,
+    ))
 
 
 @router.post("/api/v1/policy/list")
@@ -2237,13 +2231,10 @@ async def system_page(
     devices = [d for d in all_devices if d.device_id != "global"]
     selected_device_id = device_id or (devices[0].device_id if devices else None)
 
-    return templates.TemplateResponse(request, "system.html", {
-        "request": request,
-        "devices": devices,
-        "selected_device_id": selected_device_id,
-        "active_tab": tab,
-        "user": user,
-    })
+    return templates.TemplateResponse(request, "system.html", base_ctx(request,
+        devices=devices, selected_device_id=selected_device_id,
+        active_tab=tab, user=user,
+    ))
 
 
 # ---- Admins ----
@@ -2580,15 +2571,10 @@ async def analyzer_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     devices_list = [{"device_id": gid, "name": info["name"]} for gid, info in orm_tree.items()]
 
-    return templates.TemplateResponse(request, "analyzer.html", {
-        "request": request,
-        "tree": orm_tree,
-        "js_tree": js_tree,
-        "devices": devices_list,
-        "user": user,
-        "selected_folder_id": None,
-        "current_device_id": None,
-    })
+    return templates.TemplateResponse(request, "analyzer.html", base_ctx(request,
+        tree=orm_tree, js_tree=js_tree, devices=devices_list, user=user,
+        selected_folder_id=None, current_device_id=None,
+    ))
 
 
 @router.post("/api/v1/analyzer/run")
@@ -2641,13 +2627,9 @@ async def changelog_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
-    return templates.TemplateResponse(request, "changelog.html", {
-        "request": request,
-        "user": user,
-        "selected_folder_id": None,
-        "current_device_id": None,
-        "tree": {},
-    })
+    return templates.TemplateResponse(request, "changelog.html", base_ctx(request,
+        user=user, selected_folder_id=None, current_device_id=None, tree={},
+    ))
 
 
 class ChangelogQueryRequest(BaseModel):
@@ -2758,14 +2740,9 @@ async def diff_page(request: Request, db: AsyncSession = Depends(get_db)):
     devices = [{"device_id": d.device_id, "name": d.name or d.device_id}
                for d in meta_res.scalars().all() if d.device_id != "global"]
 
-    return templates.TemplateResponse(request, "diff.html", {
-        "request": request,
-        "user": user,
-        "devices": devices,
-        "selected_folder_id": None,
-        "current_device_id": None,
-        "tree": {},
-    })
+    return templates.TemplateResponse(request, "diff.html", base_ctx(request,
+        user=user, devices=devices, selected_folder_id=None, current_device_id=None, tree={},
+    ))
 
 
 @router.post("/api/v1/diff/devices")
@@ -2994,21 +2971,14 @@ async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
                 "msg": f"Device «{s['name']}» has {s['sec_modified']+s['nat_modified']} modified rules — deploy recommended"
             })
 
-    return templates.TemplateResponse(request, "dashboard.html", {
-        "request":        request,
-        "tree":           orm_tree,
-        "user":           user,
-        "selected_folder_id": None,
-        "current_device_id":  None,
-        "dev_stats":      list(dev_stats.values()),
-        "total_sec":      total_sec,
-        "total_modified": total_modified,
-        "total_nat":      total_nat,
-        "total_objects":  total_objects,
-        "changelog":      changelog,
-        "modified_rules": modified_rules,
-        "alerts":         alerts,
-    })
+    return templates.TemplateResponse(request, "dashboard.html", base_ctx(request,
+        tree=orm_tree, user=user,
+        selected_folder_id=None, current_device_id=None,
+        dev_stats=list(dev_stats.values()),
+        total_sec=total_sec, total_modified=total_modified,
+        total_nat=total_nat, total_objects=total_objects,
+        changelog=changelog, modified_rules=modified_rules, alerts=alerts,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -3199,18 +3169,11 @@ async def search_page(
 
     devices_list = [{"device_id": gid, "name": info["name"]} for gid, info in orm_tree.items()]
 
-    return templates.TemplateResponse(request, "search.html", {
-        "request":           request,
-        "tree":              orm_tree,
-        "user":              user,
-        "selected_folder_id": None,
-        "current_device_id": None,
-        "q":                 q,
-        "mode":              mode,
-        "device_id":         device_id,
-        "devices":           devices_list,
-        "results":           results,
-    })
+    return templates.TemplateResponse(request, "search.html", base_ctx(request,
+        tree=orm_tree, user=user,
+        selected_folder_id=None, current_device_id=None,
+        q=q, mode=mode, device_id=device_id, devices=devices_list, results=results,
+    ))
 
 
 @router.post("/api/v1/search")
@@ -3528,15 +3491,11 @@ async def templates_page(request: Request, db: AsyncSession = Depends(get_db)):
             }
         }
 
-    return templates.TemplateResponse(request, "templates.html", {
-        "request":           request,
-        "tree":              orm_tree,
-        "user":              user,
-        "selected_folder_id": None,
-        "current_device_id": None,
-        "templates":         templates_list,
-        "js_tree":           js_tree,
-    })
+    return templates.TemplateResponse(request, "templates.html", base_ctx(request,
+        tree=orm_tree, user=user,
+        selected_folder_id=None, current_device_id=None,
+        templates=templates_list, js_tree=js_tree,
+    ))
 
 
 @router.post("/api/v1/templates/save")

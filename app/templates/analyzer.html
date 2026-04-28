@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Policy Analyzer — NGFW Manager{% endblock %}
+{% block title %}{{ t('page_analyzer') }} — NGFW Manager{% endblock %}
 
 {% block body %}
 <div class="app-layout">
@@ -11,14 +11,14 @@
         <div class="app-topbar">
             <span class="topbar-title">
                 <i class="fas fa-magnifying-glass-chart" style="color:#8b5cf6;margin-right:6px"></i>
-                Policy Analyzer
+                {{ t('page_analyzer') }}
             </span>
             <div class="topbar-sep"></div>
             <a href="/" class="btn-top" style="text-decoration:none">
-                <i class="fas fa-layer-group"></i> Rules
+                <i class="fas fa-layer-group"></i> {{ t('topbar_rules') }}
             </a>
             <a href="/policy" class="btn-top" style="text-decoration:none">
-                <i class="fas fa-shield-virus"></i> Policy
+                <i class="fas fa-shield-virus"></i> {{ t('topbar_policy') }}
             </a>
         </div>
 
@@ -28,28 +28,28 @@
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px;
                         background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
                 <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
-                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">Device</label>
+                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">{{ t('lbl_device') }}</label>
                     <select id="selDevice" class="form-select form-select-sm"
                             style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:13px"
                             onchange="onDeviceChange()">
-                        <option value="">— Select device —</option>
+                        <option value="">{{ t('lbl_select_device') }}</option>
                         {% for d in devices %}
                         <option value="{{ d.device_id }}">{{ d.name or d.device_id }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
-                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">Folder</label>
+                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">{{ t('lbl_folder') }}</label>
                     <select id="selFolder" class="form-select form-select-sm"
                             style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:13px"
                             disabled>
-                        <option value="">All folders</option>
+                        <option value="">{{ t('lbl_all_folders') }}</option>
                     </select>
                 </div>
                 <button class="btn btn-sm" id="btnRun"
                         style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;border:none;padding:6px 20px;border-radius:6px;font-weight:600;font-size:13px"
                         onclick="runAnalysis()" disabled>
-                    <i class="fas fa-play"></i> Analyze
+                    <i class="fas fa-play"></i> {{ t('btn_analyze') }}
                 </button>
             </div>
 
@@ -57,34 +57,34 @@
             <div id="summaryRow" style="display:none;gap:12px;flex-wrap:wrap;margin-bottom:20px" class="d-flex">
                 <div class="stat-card">
                     <div class="stat-val" id="statTotal">—</div>
-                    <div class="stat-label">Total Rules</div>
+                    <div class="stat-label">{{ t('lbl_total_rules') }}</div>
                 </div>
                 <div class="stat-card" style="border-color:rgba(239,68,68,.3)">
                     <div class="stat-val" style="color:#ef4444" id="statIssues">—</div>
-                    <div class="stat-label">Issues Found</div>
+                    <div class="stat-label">{{ t('lbl_issues_found') }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-val" style="color:#64748b" id="statDisabled">—</div>
-                    <div class="stat-label">Disabled</div>
+                    <div class="stat-label">{{ t('lbl_disabled') }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-val" style="color:#f59e0b" id="statBroad">—</div>
-                    <div class="stat-label">Too Broad</div>
+                    <div class="stat-label">{{ t('lbl_too_broad') }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-val" style="color:#ef4444" id="statShadow">—</div>
-                    <div class="stat-label">Shadowed</div>
+                    <div class="stat-label">{{ t('lbl_shadowed') }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-val" style="color:#8b5cf6" id="statRedundant">—</div>
-                    <div class="stat-label">Redundant</div>
+                    <div class="stat-label">{{ t('lbl_redundant') }}</div>
                 </div>
             </div>
 
             {# ---- Spinner ---- #}
             <div id="spinner" style="display:none;text-align:center;padding:60px;color:#475569">
                 <i class="fas fa-circle-notch fa-spin" style="font-size:28px;margin-bottom:10px;display:block"></i>
-                Analyzing rules…
+                {{ t('lbl_analyzing') }}
             </div>
 
             {# ---- Results sections ---- #}
@@ -94,12 +94,12 @@
                 <div id="secDisabled" class="analysis-section" style="border-left-color:#64748b;display:none">
                     <div class="as-header">
                         <i class="fas fa-ban" style="color:#64748b"></i>
-                        <span>Disabled Rules</span>
+                        <span>{{ t('sec_disabled_title') }}</span>
                         <span class="as-count" id="cntDisabled">0</span>
                     </div>
-                    <div class="as-desc">Rules with <code>enabled = false</code>. They consume position in the ruleset but never match traffic.</div>
+                    <div class="as-desc">{{ t('sec_disabled_desc') | safe }}</div>
                     <table class="issue-table">
-                        <thead><tr><th>Name</th><th>Folder</th><th>Device</th><th></th></tr></thead>
+                        <thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_folder') }}</th><th>{{ t('col_device') }}</th><th></th></tr></thead>
                         <tbody id="tbDisabled"></tbody>
                     </table>
                 </div>
@@ -108,12 +108,12 @@
                 <div id="secBroad" class="analysis-section" style="border-left-color:#f59e0b;display:none">
                     <div class="as-header">
                         <i class="fas fa-expand" style="color:#f59e0b"></i>
-                        <span>Too Broad (Any/Any Allow)</span>
+                        <span>{{ t('sec_broad_title') }}</span>
                         <span class="as-count" style="background:rgba(245,158,11,.15);color:#f59e0b" id="cntBroad">0</span>
                     </div>
-                    <div class="as-desc">Enabled ALLOW rules with Source = Any <b>and</b> Destination = Any. These rules permit all traffic through.</div>
+                    <div class="as-desc">{{ t('sec_broad_desc') | safe }}</div>
                     <table class="issue-table">
-                        <thead><tr><th>Name</th><th>Folder</th><th>Device</th><th></th></tr></thead>
+                        <thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_folder') }}</th><th>{{ t('col_device') }}</th><th></th></tr></thead>
                         <tbody id="tbBroad"></tbody>
                     </table>
                 </div>
@@ -122,12 +122,12 @@
                 <div id="secShadow" class="analysis-section" style="border-left-color:#ef4444;display:none">
                     <div class="as-header">
                         <i class="fas fa-layer-group" style="color:#ef4444"></i>
-                        <span>Shadowed Rules</span>
+                        <span>{{ t('sec_shadow_title') }}</span>
                         <span class="as-count" style="background:rgba(239,68,68,.15);color:#ef4444" id="cntShadow">0</span>
                     </div>
-                    <div class="as-desc">Rules that are fully covered by an earlier rule — traffic never reaches them. May indicate incorrect rule order or duplicates.</div>
+                    <div class="as-desc">{{ t('sec_shadow_desc') }}</div>
                     <table class="issue-table">
-                        <thead><tr><th>Rule</th><th>Shadowed by</th><th>Reason</th><th>Folder</th><th></th></tr></thead>
+                        <thead><tr><th>{{ t('col_rule') }}</th><th>{{ t('col_shadowed_by') }}</th><th>{{ t('col_reason') }}</th><th>{{ t('col_folder') }}</th><th></th></tr></thead>
                         <tbody id="tbShadow"></tbody>
                     </table>
                 </div>
@@ -136,12 +136,12 @@
                 <div id="secRedundant" class="analysis-section" style="border-left-color:#8b5cf6;display:none">
                     <div class="as-header">
                         <i class="fas fa-copy" style="color:#8b5cf6"></i>
-                        <span>Potentially Redundant</span>
+                        <span>{{ t('sec_redundant_title') }}</span>
                         <span class="as-count" style="background:rgba(139,92,246,.15);color:#8b5cf6" id="cntRedundant">0</span>
                     </div>
-                    <div class="as-desc">Neighbouring rules with the same action, zones and service but different source addresses — candidates for merging into a single rule.</div>
+                    <div class="as-desc">{{ t('sec_redundant_desc') }}</div>
                     <table class="issue-table">
-                        <thead><tr><th>Rule A</th><th>Rule B</th><th>Reason</th><th>Folder</th><th></th></tr></thead>
+                        <thead><tr><th>{{ t('col_rule_a') }}</th><th>{{ t('col_rule_b') }}</th><th>{{ t('col_reason') }}</th><th>{{ t('col_folder') }}</th><th></th></tr></thead>
                         <tbody id="tbRedundant"></tbody>
                     </table>
                 </div>
@@ -149,8 +149,8 @@
                 {# All clear #}
                 <div id="allClear" style="display:none;text-align:center;padding:60px 0;color:#22c55e">
                     <i class="fas fa-circle-check" style="font-size:40px;display:block;margin-bottom:12px"></i>
-                    <div style="font-size:18px;font-weight:700">No issues found</div>
-                    <div style="font-size:13px;color:#475569;margin-top:4px">All analyzed rules look clean.</div>
+                    <div style="font-size:18px;font-weight:700">{{ t('lbl_no_issues') }}</div>
+                    <div style="font-size:13px;color:#475569;margin-top:4px">{{ t('lbl_all_clean') }}</div>
                 </div>
 
             </div>{# /resultsArea #}
@@ -225,13 +225,12 @@
 const TREE = {{ js_tree | tojson }};
 let _lastResult = null;
 
-// ---- populate folder dropdown when device changes ----
 function onDeviceChange() {
     const devId = document.getElementById('selDevice').value;
     const selFolder = document.getElementById('selFolder');
     const btnRun = document.getElementById('btnRun');
 
-    selFolder.innerHTML = '<option value="">All folders</option>';
+    selFolder.innerHTML = '<option value="">{{ t("lbl_all_folders") }}</option>';
     selFolder.disabled = true;
     btnRun.disabled = !devId;
 
@@ -250,7 +249,6 @@ function onDeviceChange() {
     selFolder.disabled = false;
 }
 
-// ---- run analysis ----
 async function runAnalysis() {
     const devId = document.getElementById('selDevice').value;
     const folderId = document.getElementById('selFolder').value;
@@ -271,14 +269,13 @@ async function runAnalysis() {
         _lastResult = data;
         renderResults(data);
     } catch(e) {
-        showToast('Ошибка анализа: ' + e, 'danger');
+        showToast('Error: ' + e, 'danger');
     } finally {
         document.getElementById('spinner').style.display = 'none';
     }
 }
 
 function renderResults(data) {
-    // Summary
     document.getElementById('statTotal').textContent    = data.total_rules ?? '—';
     document.getElementById('statIssues').textContent   = data.total_issues ?? '—';
     document.getElementById('statDisabled').textContent = data.disabled?.length ?? 0;
@@ -286,7 +283,6 @@ function renderResults(data) {
     document.getElementById('statShadow').textContent   = data.shadowed?.length ?? 0;
     document.getElementById('statRedundant').textContent= data.redundant?.length ?? 0;
     document.getElementById('summaryRow').style.display = '';
-
     document.getElementById('resultsArea').style.display = '';
 
     const devId = document.getElementById('selDevice').value;
@@ -313,12 +309,10 @@ function folderBadge(name) {
 
 function renderDisabled(rows) {
     const sec = document.getElementById('secDisabled');
-    const cnt = document.getElementById('cntDisabled');
-    const tb  = document.getElementById('tbDisabled');
-    cnt.textContent = rows.length;
+    document.getElementById('cntDisabled').textContent = rows.length;
     if (!rows.length) { sec.style.display = 'none'; return; }
     sec.style.display = '';
-    tb.innerHTML = rows.map(r => `
+    document.getElementById('tbDisabled').innerHTML = rows.map(r => `
         <tr>
             <td><span class="tag-rule">${escHtml(r.name)}</span></td>
             <td>${folderBadge(r.folder)}</td>
@@ -329,12 +323,10 @@ function renderDisabled(rows) {
 
 function renderBroad(rows) {
     const sec = document.getElementById('secBroad');
-    const cnt = document.getElementById('cntBroad');
-    const tb  = document.getElementById('tbBroad');
-    cnt.textContent = rows.length;
+    document.getElementById('cntBroad').textContent = rows.length;
     if (!rows.length) { sec.style.display = 'none'; return; }
     sec.style.display = '';
-    tb.innerHTML = rows.map(r => `
+    document.getElementById('tbBroad').innerHTML = rows.map(r => `
         <tr>
             <td><span class="tag-rule" style="background:rgba(245,158,11,.15);color:#fcd34d">${escHtml(r.name)}</span></td>
             <td>${folderBadge(r.folder)}</td>
@@ -345,12 +337,10 @@ function renderBroad(rows) {
 
 function renderShadowed(rows, devId) {
     const sec = document.getElementById('secShadow');
-    const cnt = document.getElementById('cntShadow');
-    const tb  = document.getElementById('tbShadow');
-    cnt.textContent = rows.length;
+    document.getElementById('cntShadow').textContent = rows.length;
     if (!rows.length) { sec.style.display = 'none'; return; }
     sec.style.display = '';
-    tb.innerHTML = rows.map(r => `
+    document.getElementById('tbShadow').innerHTML = rows.map(r => `
         <tr>
             <td><span class="tag-rule tag-shadow">${escHtml(r.name)}</span></td>
             <td><span class="tag-rule" style="background:rgba(59,130,246,.12);color:#93c5fd">${escHtml(r.shadowed_by)}</span></td>
@@ -362,12 +352,10 @@ function renderShadowed(rows, devId) {
 
 function renderRedundant(rows) {
     const sec = document.getElementById('secRedundant');
-    const cnt = document.getElementById('cntRedundant');
-    const tb  = document.getElementById('tbRedundant');
-    cnt.textContent = rows.length;
+    document.getElementById('cntRedundant').textContent = rows.length;
     if (!rows.length) { sec.style.display = 'none'; return; }
     sec.style.display = '';
-    tb.innerHTML = rows.map(r => `
+    document.getElementById('tbRedundant').innerHTML = rows.map(r => `
         <tr>
             <td><span class="tag-rule" style="background:rgba(139,92,246,.12);color:#c4b5fd">${escHtml(r.name)}</span></td>
             <td><span class="tag-rule" style="background:rgba(139,92,246,.12);color:#c4b5fd">${escHtml(r.pair_name)}</span></td>
@@ -377,7 +365,6 @@ function renderRedundant(rows) {
         </tr>`).join('');
 }
 
-// Toast helper (same as other pages)
 function showToast(msg, type='success') {
     const stack = document.getElementById('toastStack');
     const t = document.createElement('div');

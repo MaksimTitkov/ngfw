@@ -24,20 +24,44 @@
                 border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden">
         <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.07)">
             <i class="fas fa-magnifying-glass" style="color:#475569;font-size:16px"></i>
-            <input id="qsInput" type="text" placeholder="Search rules by name, IP or port…"
+            <input id="qsInput" type="text" placeholder="{{ t('qs_placeholder') }}"
                    style="flex:1;background:none;border:none;outline:none;color:#e2e8f0;font-size:15px"
                    oninput="qsSearch(this.value)" onkeydown="qsKey(event)">
             <span style="font-size:11px;color:#334155;border:1px solid #334155;border-radius:4px;padding:2px 5px">ESC</span>
         </div>
         <div id="qsResults" style="max-height:380px;overflow-y:auto;padding:6px 0"></div>
         <div style="padding:8px 14px;display:flex;gap:16px;border-top:1px solid rgba(255,255,255,.06)">
-            <span style="font-size:11px;color:#334155"><kbd style="background:#0f172a;border:1px solid #334155;border-radius:3px;padding:1px 5px">↑↓</kbd> navigate</span>
-            <span style="font-size:11px;color:#334155"><kbd style="background:#0f172a;border:1px solid #334155;border-radius:3px;padding:1px 5px">↵</kbd> go to rule</span>
-            <a href="/search" style="margin-left:auto;font-size:11px;color:#3b82f6;text-decoration:none">Advanced search →</a>
+            <span style="font-size:11px;color:#334155"><kbd style="background:#0f172a;border:1px solid #334155;border-radius:3px;padding:1px 5px">↑↓</kbd> {{ t('qs_navigate') }}</span>
+            <span style="font-size:11px;color:#334155"><kbd style="background:#0f172a;border:1px solid #334155;border-radius:3px;padding:1px 5px">↵</kbd> {{ t('qs_go_to_rule') }}</span>
+            <a href="/search" style="margin-left:auto;font-size:11px;color:#3b82f6;text-decoration:none">{{ t('qs_advanced') }}</a>
         </div>
     </div>
 </div>
 
+<script>
+const LANG = '{{ lang if lang is defined else "ru" }}';
+const UI = {
+    qs_type_chars:  '{{ t("qs_type_chars") }}',
+    qs_searching:   '{{ t("qs_searching") }}',
+    qs_no_results:  '{{ t("qs_no_results") }}',
+    qs_view_all:    '{{ t("qs_view_all") }}',
+    qs_results:     '{{ t("qs_results") }}',
+    lbl_loading:    '{{ t("lbl_loading") }}',
+    lbl_analyzing:  '{{ t("lbl_analyzing") }}',
+    lbl_comparing:  '{{ t("lbl_comparing") }}',
+    lbl_no_records: '{{ t("lbl_no_records") }}',
+    lbl_no_pending: '{{ t("lbl_no_pending") }}',
+    lbl_all_match_sync: '{{ t("lbl_all_match_sync") }}',
+    lbl_select_device: '{{ t("lbl_select_device") }}',
+    lbl_select_dev_modified: '{{ t("lbl_select_dev_modified") }}',
+    lbl_policies_identical: '{{ t("lbl_policies_identical") }}',
+    lbl_all_rules_match: '{{ t("lbl_all_rules_match") }}',
+    lbl_modified_not_deployed: '{{ t("lbl_modified_not_deployed") }}',
+    lbl_no_matching: '{{ t("lbl_no_matching") }}',
+    lbl_no_issues:  '{{ t("lbl_no_issues") }}',
+    lbl_all_clean:  '{{ t("lbl_all_clean") }}',
+};
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <script src="/static/js/picker.js"></script>
@@ -73,7 +97,7 @@ function closeQuickSearch(e) {
 function qsSearch(val) {
     clearTimeout(_qsTimer);
     if (val.trim().length < 2) {
-        document.getElementById('qsResults').innerHTML = '<div style="padding:14px 16px;color:#475569;font-size:13px">Type at least 2 characters…</div>';
+        document.getElementById('qsResults').innerHTML = `<div style="padding:14px 16px;color:#475569;font-size:13px">${UI.qs_type_chars}</div>`;
         return;
     }
     _qsTimer = setTimeout(() => _qsFetch(val.trim()), 200);
@@ -81,7 +105,7 @@ function qsSearch(val) {
 
 async function _qsFetch(q) {
     const box = document.getElementById('qsResults');
-    box.innerHTML = '<div style="padding:14px 16px;color:#475569;font-size:13px"><i class="fas fa-spinner fa-spin me-2"></i>Searching…</div>';
+    box.innerHTML = `<div style="padding:14px 16px;color:#475569;font-size:13px"><i class="fas fa-spinner fa-spin me-2"></i>${UI.qs_searching}</div>`;
     try {
         const r = await fetch('/api/v1/search', {
             method: 'POST',
@@ -99,7 +123,7 @@ function _qsRender(results, q) {
     const box = document.getElementById('qsResults');
     _qsCurrent = -1;
     if (!results.length) {
-        box.innerHTML = '<div style="padding:14px 16px;color:#475569;font-size:13px">No results for «' + q + '»</div>';
+        box.innerHTML = `<div style="padding:14px 16px;color:#475569;font-size:13px">${UI.qs_no_results} «${q}»</div>`;
         return;
     }
     const ACTION_COLORS = {ALLOW:'#22c55e', PASS:'#22c55e', DENY:'#ef4444', DROP:'#ef4444'};
@@ -119,7 +143,7 @@ function _qsRender(results, q) {
     if (results.length > 15) {
         box.innerHTML += `<a href="/search?q=${encodeURIComponent(q)}&mode=any"
             style="display:block;padding:9px 16px;text-align:center;color:#3b82f6;font-size:12px;text-decoration:none;border-top:1px solid rgba(255,255,255,.06)">
-            View all ${results.length} results →</a>`;
+            ${UI.qs_view_all} ${results.length} ${UI.qs_results}</a>`;
     }
 }
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Policy Diff — NGFW Manager{% endblock %}
+{% block title %}{{ t('page_diff') }} — NGFW Manager{% endblock %}
 
 {% block body %}
 <div class="app-layout">
@@ -11,12 +11,12 @@
         <div class="app-topbar">
             <span class="topbar-title">
                 <i class="fas fa-code-compare" style="color:#f59e0b;margin-right:6px"></i>
-                Policy Diff
+                {{ t('page_diff') }}
             </span>
             <div class="topbar-sep"></div>
-            <a href="/" class="btn-top" style="text-decoration:none"><i class="fas fa-layer-group"></i> Rules</a>
-            <a href="/analyzer" class="btn-top" style="text-decoration:none"><i class="fas fa-magnifying-glass-chart"></i> Analyzer</a>
-            <a href="/changelog" class="btn-top" style="text-decoration:none"><i class="fas fa-clock-rotate-left"></i> Log</a>
+            <a href="/" class="btn-top" style="text-decoration:none"><i class="fas fa-layer-group"></i> {{ t('topbar_rules') }}</a>
+            <a href="/analyzer" class="btn-top" style="text-decoration:none"><i class="fas fa-magnifying-glass-chart"></i> {{ t('topbar_analyzer') }}</a>
+            <a href="/changelog" class="btn-top" style="text-decoration:none"><i class="fas fa-clock-rotate-left"></i> {{ t('topbar_log') }}</a>
         </div>
 
         <div class="app-content" style="padding:20px;display:flex;flex-direction:column;gap:16px;overflow:auto">
@@ -24,10 +24,10 @@
             {# ---- Tabs ---- #}
             <div style="display:flex;gap:4px">
                 <button id="tabBtnDevice" class="diff-tab active" onclick="switchTab('device')">
-                    <i class="fas fa-server me-1"></i>Device Comparison
+                    <i class="fas fa-server me-1"></i>{{ t('tab_device_comp') }}
                 </button>
                 <button id="tabBtnModified" class="diff-tab" onclick="switchTab('modified')">
-                    <i class="fas fa-pen-to-square me-1"></i>Modified (Pending Deploy)
+                    <i class="fas fa-pen-to-square me-1"></i>{{ t('tab_modified') }}
                 </button>
             </div>
 
@@ -38,9 +38,9 @@
                             background:#1e293b;border:1px solid rgba(255,255,255,.06);
                             border-radius:10px;padding:14px 16px">
                     <div>
-                        <div class="diff-label">Device A</div>
+                        <div class="diff-label">{{ t('lbl_device_a') }}</div>
                         <select id="selA" class="diff-select">
-                            <option value="">— Select —</option>
+                            <option value="">{{ t('lbl_select') }}</option>
                             {% for d in devices %}
                             <option value="{{ d.device_id }}">{{ d.name }}</option>
                             {% endfor %}
@@ -48,9 +48,9 @@
                     </div>
                     <div style="color:#475569;padding-bottom:6px"><i class="fas fa-arrows-left-right"></i></div>
                     <div>
-                        <div class="diff-label">Device B</div>
+                        <div class="diff-label">{{ t('lbl_device_b') }}</div>
                         <select id="selB" class="diff-select">
-                            <option value="">— Select —</option>
+                            <option value="">{{ t('lbl_select') }}</option>
                             {% for d in devices %}
                             <option value="{{ d.device_id }}">{{ d.name }}</option>
                             {% endfor %}
@@ -60,14 +60,14 @@
                             style="padding:6px 20px;border-radius:6px;border:none;
                                    background:linear-gradient(135deg,#d97706,#f59e0b);
                                    color:#fff;font-weight:600;font-size:13px;cursor:pointer">
-                        <i class="fas fa-play me-1"></i>Compare
+                        <i class="fas fa-play me-1"></i>{{ t('btn_compare') }}
                     </button>
                     <div id="diffSummary" style="margin-left:auto;font-size:12px;color:#475569"></div>
                 </div>
 
                 <div id="ddSpinner" style="display:none;text-align:center;padding:48px;color:#475569">
                     <i class="fas fa-circle-notch fa-spin" style="font-size:24px;display:block;margin-bottom:8px"></i>
-                    Comparing…
+                    {{ t('lbl_comparing') }}
                 </div>
 
                 <div id="ddResults" style="display:none;display:flex;flex-direction:column;gap:12px">
@@ -76,11 +76,11 @@
                     <div id="secOnlyA" class="diff-section" style="border-left-color:#22c55e;display:none">
                         <div class="diff-sec-hdr">
                             <i class="fas fa-plus-circle" style="color:#22c55e"></i>
-                            <span id="lblOnlyA">Only in A</span>
+                            <span id="lblOnlyA">{{ t('lbl_only_in') }} A</span>
                             <span class="diff-badge green" id="cntOnlyA">0</span>
-                            <span style="font-size:11px;color:#475569;margin-left:6px">— rules that exist in A but not in B</span>
+                            <span style="font-size:11px;color:#475569;margin-left:6px">{{ t('lbl_rules_only_a') }}</span>
                         </div>
-                        <table class="diff-table"><thead><tr><th>Name</th><th>Folder</th><th>Action</th><th>Enabled</th></tr></thead>
+                        <table class="diff-table"><thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_folder') }}</th><th>{{ t('col_action') }}</th><th>{{ t('col_enabled') }}</th></tr></thead>
                         <tbody id="tbOnlyA"></tbody></table>
                     </div>
 
@@ -88,11 +88,11 @@
                     <div id="secOnlyB" class="diff-section" style="border-left-color:#ef4444;display:none">
                         <div class="diff-sec-hdr">
                             <i class="fas fa-minus-circle" style="color:#ef4444"></i>
-                            <span id="lblOnlyB">Only in B</span>
+                            <span id="lblOnlyB">{{ t('lbl_only_in') }} B</span>
                             <span class="diff-badge red" id="cntOnlyB">0</span>
-                            <span style="font-size:11px;color:#475569;margin-left:6px">— rules that exist in B but not in A</span>
+                            <span style="font-size:11px;color:#475569;margin-left:6px">{{ t('lbl_rules_only_b') }}</span>
                         </div>
-                        <table class="diff-table"><thead><tr><th>Name</th><th>Folder</th><th>Action</th><th>Enabled</th></tr></thead>
+                        <table class="diff-table"><thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_folder') }}</th><th>{{ t('col_action') }}</th><th>{{ t('col_enabled') }}</th></tr></thead>
                         <tbody id="tbOnlyB"></tbody></table>
                     </div>
 
@@ -100,12 +100,12 @@
                     <div id="secChanged" class="diff-section" style="border-left-color:#f59e0b;display:none">
                         <div class="diff-sec-hdr">
                             <i class="fas fa-arrows-rotate" style="color:#f59e0b"></i>
-                            <span>Different</span>
+                            <span>{{ t('lbl_different') }}</span>
                             <span class="diff-badge yellow" id="cntChanged">0</span>
-                            <span style="font-size:11px;color:#475569;margin-left:6px">— same name, different settings</span>
+                            <span style="font-size:11px;color:#475569;margin-left:6px">{{ t('lbl_same_diff_settings') }}</span>
                         </div>
                         <table class="diff-table">
-                            <thead><tr><th>Name</th><th>Field</th><th>Value A</th><th>Value B</th></tr></thead>
+                            <thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_field') }}</th><th>{{ t('col_value_a') }}</th><th>{{ t('col_value_b') }}</th></tr></thead>
                             <tbody id="tbChanged"></tbody>
                         </table>
                     </div>
@@ -113,8 +113,8 @@
                     {# All clear #}
                     <div id="ddClear" style="display:none;text-align:center;padding:48px;color:#22c55e">
                         <i class="fas fa-circle-check" style="font-size:36px;display:block;margin-bottom:10px"></i>
-                        <div style="font-size:16px;font-weight:700">Policies are identical</div>
-                        <div style="font-size:12px;color:#475569;margin-top:4px">All rules match between the two device groups.</div>
+                        <div style="font-size:16px;font-weight:700">{{ t('lbl_policies_identical') }}</div>
+                        <div style="font-size:12px;color:#475569;margin-top:4px">{{ t('lbl_all_rules_match') }}</div>
                     </div>
 
                 </div>{# /ddResults #}
@@ -127,9 +127,9 @@
                             background:#1e293b;border:1px solid rgba(255,255,255,.06);
                             border-radius:10px;padding:14px 16px">
                     <div>
-                        <div class="diff-label">Device</div>
+                        <div class="diff-label">{{ t('lbl_device') }}</div>
                         <select id="selModDev" class="diff-select">
-                            <option value="">— Select —</option>
+                            <option value="">{{ t('lbl_select') }}</option>
                             {% for d in devices %}
                             <option value="{{ d.device_id }}">{{ d.name }}</option>
                             {% endfor %}
@@ -139,7 +139,7 @@
                             style="padding:6px 20px;border-radius:6px;border:none;
                                    background:linear-gradient(135deg,#7c3aed,#8b5cf6);
                                    color:#fff;font-weight:600;font-size:13px;cursor:pointer">
-                        <i class="fas fa-play me-1"></i>Load
+                        <i class="fas fa-play me-1"></i>{{ t('btn_load') }}
                     </button>
                     <span style="font-size:12px;color:#475569;margin-left:auto" id="modInfo"></span>
                 </div>
@@ -147,7 +147,7 @@
                 <div id="modResults" style="margin-top:4px">
                     <div style="text-align:center;padding:48px;color:#475569;font-size:13px">
                         <i class="fas fa-pen-to-square" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3"></i>
-                        Select a device to see locally modified rules
+                        {{ t('lbl_select_dev_modified') }}
                     </div>
                 </div>
 
@@ -216,6 +216,16 @@
 
 {% block scripts %}
 <script>
+const DIFF_ONLY_IN    = '{{ t("lbl_only_in") }}';
+const DIFF_IDENTICAL  = '{{ t("lbl_policies_identical") }}';
+const DIFF_ALL_MATCH  = '{{ t("lbl_all_rules_match") }}';
+const DIFF_NO_PENDING = '{{ t("lbl_no_pending") }}';
+const DIFF_MATCH_SYNC = '{{ t("lbl_all_match_sync") }}';
+const DIFF_MOD_LABEL  = '{{ t("lbl_modified_not_deployed") }}';
+const DIFF_SELECT_DEV = '{{ t("lbl_select_device") }}';
+const DIFF_LOADING    = '{{ t("lbl_loading") }}';
+const DIFF_RULES_LBL  = '{{ t("lbl_rules") }}';
+
 let _activeTab = 'device';
 
 function switchTab(t) {
@@ -226,12 +236,11 @@ function switchTab(t) {
     document.getElementById('tabBtnModified').classList.toggle('active', t === 'modified');
 }
 
-// ---- Device Diff ----
 async function runDeviceDiff() {
     const a = document.getElementById('selA').value;
     const b = document.getElementById('selB').value;
-    if (!a || !b) { showToast('Выберите оба устройства', 'warning'); return; }
-    if (a === b)  { showToast('Устройства должны быть разными', 'warning'); return; }
+    if (!a || !b) { showToast(DIFF_SELECT_DEV, 'warning'); return; }
+    if (a === b)  { showToast('A ≠ B', 'warning'); return; }
 
     document.getElementById('ddSpinner').style.display  = 'block';
     document.getElementById('ddResults').style.display  = 'none';
@@ -253,10 +262,10 @@ async function runDeviceDiff() {
         const nameB = document.getElementById('selB').options[document.getElementById('selB').selectedIndex].text;
 
         document.getElementById('diffSummary').textContent =
-            `A: ${d.total_a} rules · B: ${d.total_b} rules · ${d.identical} identical`;
+            `A: ${d.total_a} ${DIFF_RULES_LBL} · B: ${d.total_b} ${DIFF_RULES_LBL} · ${d.identical} identical`;
 
-        document.getElementById('lblOnlyA').textContent = `Only in ${nameA}`;
-        document.getElementById('lblOnlyB').textContent = `Only in ${nameB}`;
+        document.getElementById('lblOnlyA').textContent = `${DIFF_ONLY_IN} ${nameA}`;
+        document.getElementById('lblOnlyB').textContent = `${DIFF_ONLY_IN} ${nameB}`;
 
         _renderOnlyA(d.only_a || [], nameA);
         _renderOnlyB(d.only_b || [], nameB);
@@ -266,7 +275,7 @@ async function runDeviceDiff() {
         document.getElementById('ddClear').style.display = hasIssues ? 'none' : '';
     } catch(e) {
         document.getElementById('ddSpinner').style.display = 'none';
-        showToast('Ошибка: ' + e.message, 'error');
+        showToast('Error: ' + e.message, 'error');
     }
 }
 
@@ -332,13 +341,12 @@ function _actionBadge(a) {
     return `<span class="${cls}">${_e(a)}</span>`;
 }
 
-// ---- Modified ----
 async function loadModified() {
     const dev = document.getElementById('selModDev').value;
-    if (!dev) { showToast('Выберите устройство', 'warning'); return; }
+    if (!dev) { showToast(DIFF_SELECT_DEV, 'warning'); return; }
 
     document.getElementById('modResults').innerHTML =
-        '<div style="text-align:center;padding:40px;color:#475569"><i class="fas fa-circle-notch fa-spin me-2"></i>Loading…</div>';
+        `<div style="text-align:center;padding:40px;color:#475569"><i class="fas fa-circle-notch fa-spin me-2"></i>${DIFF_LOADING}</div>`;
 
     try {
         const r = await fetch(`/api/v1/diff/modified?device_group_id=${encodeURIComponent(dev)}`);
@@ -346,14 +354,14 @@ async function loadModified() {
         const rules = d.rules || [];
 
         document.getElementById('modInfo').textContent =
-            rules.length ? `${rules.length} modified rule(s)` : '';
+            rules.length ? `${rules.length} ${DIFF_MOD_LABEL}` : '';
 
         if (!rules.length) {
             document.getElementById('modResults').innerHTML = `
                 <div style="text-align:center;padding:48px;color:#22c55e">
                     <i class="fas fa-circle-check" style="font-size:32px;display:block;margin-bottom:10px"></i>
-                    <div style="font-size:15px;font-weight:700">No pending changes</div>
-                    <div style="font-size:12px;color:#475569;margin-top:4px">All rules match the last sync.</div>
+                    <div style="font-size:15px;font-weight:700">${DIFF_NO_PENDING}</div>
+                    <div style="font-size:12px;color:#475569;margin-top:4px">${DIFF_MATCH_SYNC}</div>
                 </div>`;
             return;
         }
@@ -362,7 +370,7 @@ async function loadModified() {
             <div style="background:#1e293b;border:1px solid rgba(245,158,11,.2);border-left:3px solid #f59e0b;
                         border-radius:10px;margin-top:4px;overflow:hidden">
                 <div style="padding:10px 16px;font-size:12px;font-weight:700;color:#fbbf24;border-bottom:1px solid rgba(255,255,255,.06)">
-                    <i class="fas fa-pen-to-square me-2"></i>${rules.length} rule(s) modified locally — not yet deployed
+                    <i class="fas fa-pen-to-square me-2"></i>${rules.length} ${DIFF_MOD_LABEL}
                 </div>
                 ${rules.map(r => `
                 <div class="mod-row">
@@ -385,14 +393,13 @@ async function loadModified() {
 
 function _fmtTime(s) {
     if (!s) return '';
-    try { return new Date(s).toLocaleString('ru-RU'); } catch { return s; }
+    try { return new Date(s).toLocaleString(LANG === 'ru' ? 'ru-RU' : 'en-GB'); } catch { return s; }
 }
 
 function _e(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Toast helper
 function showToast(msg, type='success') {
     const stack = document.getElementById('toastStack');
     const t = document.createElement('div');

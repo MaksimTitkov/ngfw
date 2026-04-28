@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Change Log — NGFW Manager{% endblock %}
+{% block title %}{{ t('page_changelog') }} — NGFW Manager{% endblock %}
 
 {% block body %}
 <div class="app-layout">
@@ -11,14 +11,14 @@
         <div class="app-topbar">
             <span class="topbar-title">
                 <i class="fas fa-clock-rotate-left" style="color:#10b981;margin-right:6px"></i>
-                Change Log
+                {{ t('page_changelog') }}
             </span>
             <div class="topbar-sep"></div>
             <a href="/" class="btn-top" style="text-decoration:none">
-                <i class="fas fa-layer-group"></i> Rules
+                <i class="fas fa-layer-group"></i> {{ t('topbar_rules') }}
             </a>
             <a href="/analyzer" class="btn-top" style="text-decoration:none">
-                <i class="fas fa-magnifying-glass-chart"></i> Analyzer
+                <i class="fas fa-magnifying-glass-chart"></i> {{ t('topbar_analyzer') }}
             </a>
         </div>
 
@@ -30,49 +30,49 @@
                         border-radius:10px;padding:14px 16px">
 
                 <div>
-                    <div class="cl-label">Search</div>
-                    <input id="fSearch" type="text" placeholder="Rule name / detail…"
+                    <div class="cl-label">{{ t('lbl_search') }}</div>
+                    <input id="fSearch" type="text" placeholder="{{ t('col_name') }}…"
                            style="padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
                                   background:#0f172a;color:#e2e8f0;font-size:12px;width:200px;outline:none">
                 </div>
                 <div>
-                    <div class="cl-label">Action</div>
+                    <div class="cl-label">{{ t('col_action') }}</div>
                     <select id="fAction" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
                                                background:#0f172a;color:#e2e8f0;font-size:12px;outline:none">
-                        <option value="">All</option>
-                        <option value="create">Create</option>
-                        <option value="update">Update</option>
-                        <option value="delete">Delete</option>
-                        <option value="toggle">Toggle</option>
-                        <option value="reorder">Reorder</option>
+                        <option value="">{{ t('lbl_all') }}</option>
+                        <option value="create">{{ t('opt_create') }}</option>
+                        <option value="update">{{ t('opt_update') }}</option>
+                        <option value="delete">{{ t('opt_delete') }}</option>
+                        <option value="toggle">{{ t('opt_toggle') }}</option>
+                        <option value="reorder">{{ t('opt_reorder') }}</option>
                     </select>
                 </div>
                 <div>
-                    <div class="cl-label">Type</div>
+                    <div class="cl-label">{{ t('col_type') }}</div>
                     <select id="fType" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
                                              background:#0f172a;color:#e2e8f0;font-size:12px;outline:none">
-                        <option value="">All</option>
-                        <option value="rule">Rule</option>
-                        <option value="nat_rule">NAT Rule</option>
-                        <option value="object">Object</option>
-                        <option value="policy_decryption">Policy Decryption</option>
-                        <option value="policy_auth">Policy Auth</option>
-                        <option value="policy_pbr">Policy PBR</option>
+                        <option value="">{{ t('lbl_all') }}</option>
+                        <option value="rule">{{ t('opt_rule') }}</option>
+                        <option value="nat_rule">{{ t('opt_nat_rule') }}</option>
+                        <option value="object">{{ t('opt_object') }}</option>
+                        <option value="policy_decryption">{{ t('opt_policy_dec') }}</option>
+                        <option value="policy_auth">{{ t('opt_policy_auth') }}</option>
+                        <option value="policy_pbr">{{ t('opt_policy_pbr') }}</option>
                     </select>
                 </div>
                 <div>
-                    <div class="cl-label">User</div>
+                    <div class="cl-label">{{ t('col_user') }}</div>
                     <input id="fUser" type="text" placeholder="admin"
                            style="padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
                                   background:#0f172a;color:#e2e8f0;font-size:12px;width:110px;outline:none">
                 </div>
                 <button onclick="doSearch()" style="padding:5px 16px;border-radius:6px;border:none;
                         background:#10b981;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
-                    <i class="fas fa-filter"></i> Filter
+                    <i class="fas fa-filter"></i> {{ t('btn_filter') }}
                 </button>
                 <button onclick="resetFilters()" style="padding:5px 12px;border-radius:6px;
                         border:1px solid rgba(255,255,255,.1);background:none;color:#64748b;font-size:12px;cursor:pointer">
-                    Reset
+                    {{ t('btn_reset') }}
                 </button>
                 <div style="margin-left:auto;font-size:12px;color:#475569" id="totalLabel"></div>
             </div>
@@ -82,18 +82,18 @@
                 <table style="width:100%;border-collapse:collapse;font-size:12px">
                     <thead>
                         <tr style="border-bottom:1px solid rgba(255,255,255,.06)">
-                            <th class="cl-th">Time</th>
-                            <th class="cl-th">User</th>
-                            <th class="cl-th">Action</th>
-                            <th class="cl-th">Type</th>
-                            <th class="cl-th">Name</th>
-                            <th class="cl-th">Device</th>
-                            <th class="cl-th">Detail</th>
+                            <th class="cl-th">{{ t('col_time') }}</th>
+                            <th class="cl-th">{{ t('col_user') }}</th>
+                            <th class="cl-th">{{ t('col_action') }}</th>
+                            <th class="cl-th">{{ t('col_type') }}</th>
+                            <th class="cl-th">{{ t('col_name') }}</th>
+                            <th class="cl-th">{{ t('col_device') }}</th>
+                            <th class="cl-th">{{ t('col_detail') }}</th>
                         </tr>
                     </thead>
                     <tbody id="clBody">
                         <tr><td colspan="7" class="cl-empty">
-                            <i class="fas fa-circle-notch fa-spin" style="margin-right:6px"></i>Loading…
+                            <i class="fas fa-circle-notch fa-spin" style="margin-right:6px"></i>{{ t('lbl_loading') }}
                         </td></tr>
                     </tbody>
                 </table>
@@ -104,7 +104,7 @@
                 <button onclick="loadMore()"
                         style="padding:5px 20px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
                                background:none;color:#64748b;font-size:12px;cursor:pointer">
-                    <i class="fas fa-chevron-down me-1"></i>Load more
+                    <i class="fas fa-chevron-down me-1"></i>{{ t('btn_load_more') }}
                 </button>
                 <span id="loadMoreInfo" style="font-size:11px;color:#475569;margin-left:10px"></span>
             </div>
@@ -144,6 +144,12 @@ let _total  = 0;
 let _items  = [];
 const PAGE  = 100;
 
+const CL_SHOWING = '{{ t("lbl_showing") }}';
+const CL_OF      = '{{ t("lbl_of") }}';
+const CL_RECORDS = '{{ t("lbl_records") }}';
+const CL_LOADING = '{{ t("lbl_loading") }}';
+const CL_NO_RECS = '{{ t("lbl_no_records") }}';
+
 async function doSearch() {
     _offset = 0; _total = 0; _items = [];
     await _load(false);
@@ -164,16 +170,16 @@ function resetFilters() {
 async function _load(append) {
     if (!append) {
         document.getElementById('clBody').innerHTML =
-            '<tr><td colspan="7" class="cl-empty"><i class="fas fa-circle-notch fa-spin me-2"></i>Loading…</td></tr>';
+            `<tr><td colspan="7" class="cl-empty"><i class="fas fa-circle-notch fa-spin me-2"></i>${CL_LOADING}</td></tr>`;
     }
     try {
         const body = {
-            limit:           PAGE,
-            offset:          _offset,
-            search:          document.getElementById('fSearch').value.trim() || null,
-            action:          document.getElementById('fAction').value || null,
-            entity_type:     document.getElementById('fType').value || null,
-            username:        document.getElementById('fUser').value.trim() || null,
+            limit:       PAGE,
+            offset:      _offset,
+            search:      document.getElementById('fSearch').value.trim() || null,
+            action:      document.getElementById('fAction').value || null,
+            entity_type: document.getElementById('fType').value || null,
+            username:    document.getElementById('fUser').value.trim() || null,
         };
         const r = await fetch('/api/v1/changelog/query', {
             method: 'POST',
@@ -189,7 +195,7 @@ async function _load(append) {
         _offset += newItems.length;
 
         document.getElementById('totalLabel').textContent =
-            `${_total.toLocaleString()} records`;
+            `${_total.toLocaleString()} ${CL_RECORDS}`;
 
         _render();
 
@@ -197,7 +203,7 @@ async function _load(append) {
         const info = document.getElementById('loadMoreInfo');
         if (_items.length < _total) {
             bar.style.display = '';
-            info.textContent  = `Showing ${_items.length.toLocaleString()} of ${_total.toLocaleString()}`;
+            info.textContent  = `${CL_SHOWING} ${_items.length.toLocaleString()} ${CL_OF} ${_total.toLocaleString()}`;
         } else {
             bar.style.display = 'none';
         }
@@ -210,7 +216,7 @@ async function _load(append) {
 function _render() {
     if (!_items.length) {
         document.getElementById('clBody').innerHTML =
-            '<tr><td colspan="7" class="cl-empty">No records match the current filters.</td></tr>';
+            `<tr><td colspan="7" class="cl-empty">${CL_NO_RECS}</td></tr>`;
         return;
     }
     document.getElementById('clBody').innerHTML = _items.map(r => `
@@ -239,7 +245,7 @@ function _typeBadge(t) {
 function _fmtTime(iso) {
     if (!iso) return '—';
     try {
-        return new Date(iso).toLocaleString('ru-RU', {
+        return new Date(iso).toLocaleString(LANG === 'ru' ? 'ru-RU' : 'en-GB', {
             day:'2-digit', month:'2-digit', year:'numeric',
             hour:'2-digit', minute:'2-digit', second:'2-digit'
         });
