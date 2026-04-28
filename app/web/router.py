@@ -2580,7 +2580,7 @@ async def analyzer_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     devices_list = [{"device_id": gid, "name": info["name"]} for gid, info in orm_tree.items()]
 
-    return templates.TemplateResponse("analyzer.html", {
+    return templates.TemplateResponse(request, "analyzer.html", {
         "request": request,
         "tree": orm_tree,
         "js_tree": js_tree,
@@ -2641,7 +2641,7 @@ async def changelog_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
-    return templates.TemplateResponse("changelog.html", {
+    return templates.TemplateResponse(request, "changelog.html", {
         "request": request,
         "user": user,
         "selected_folder_id": None,
@@ -2758,7 +2758,7 @@ async def diff_page(request: Request, db: AsyncSession = Depends(get_db)):
     devices = [{"device_id": d.device_id, "name": d.name or d.device_id}
                for d in meta_res.scalars().all() if d.device_id != "global"]
 
-    return templates.TemplateResponse("diff.html", {
+    return templates.TemplateResponse(request, "diff.html", {
         "request": request,
         "user": user,
         "devices": devices,
@@ -2994,7 +2994,7 @@ async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
                 "msg": f"Device «{s['name']}» has {s['sec_modified']+s['nat_modified']} modified rules — deploy recommended"
             })
 
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request":        request,
         "tree":           orm_tree,
         "user":           user,
@@ -3199,7 +3199,7 @@ async def search_page(
 
     devices_list = [{"device_id": gid, "name": info["name"]} for gid, info in orm_tree.items()]
 
-    return templates.TemplateResponse("search.html", {
+    return templates.TemplateResponse(request, "search.html", {
         "request":           request,
         "tree":              orm_tree,
         "user":              user,
@@ -3528,7 +3528,7 @@ async def templates_page(request: Request, db: AsyncSession = Depends(get_db)):
             }
         }
 
-    return templates.TemplateResponse("templates.html", {
+    return templates.TemplateResponse(request, "templates.html", {
         "request":           request,
         "tree":              orm_tree,
         "user":              user,
