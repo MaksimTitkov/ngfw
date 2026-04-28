@@ -889,6 +889,21 @@ class ObjectDeleteRequest(BaseModel):
     ext_ids: List[str]
 
 
+class ObjectUpdateRequest(BaseModel):
+    ext_id: str
+    device_group_id: str
+    obj_type: str        # same as ObjectCreateRequest
+    name: str
+    ip_value: str = ""
+    range_start: str = ""
+    range_end: str = ""
+    fqdn: str = ""
+    protocol: int = 6
+    dst_port_start: int = 0
+    dst_port_end: int = 0
+    member_ids: List[str] = []
+
+
 @router.post("/api/v1/objects/create")
 async def create_object_endpoint(request: Request, data: ObjectCreateRequest, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
@@ -964,6 +979,74 @@ async def create_object_endpoint(request: Request, data: ObjectCreateRequest, db
         return JSONResponse({"status": "ok", "id": ext_id, "name": name})
     except Exception as e:
         logger.error(f"Object creation failed: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
+@router.post("/api/v1/objects/update")
+async def update_object_endpoint(request: Request, data: ObjectUpdateRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    try:
+        await client.login(user['username'], user['password'])
+        dg_id = data.device_group_id
+        name  = data.name.strip()
+        oid   = data.ext_id
+
+        if data.obj_type == 'net_ip':
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id,
+                       "networkIpAddress": {"value": data.ip_value}}
+            type_lbl = "Host/Network"
+        elif data.obj_type == 'net_range':
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id,
+                       "networkIpRange": {"start": data.range_start, "end": data.range_end}}
+            type_lbl = "Host/Network"
+        elif data.obj_type == 'net_fqdn':
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id,
+                       "networkFqdn": {"fqdn": data.fqdn}}
+            type_lbl = "Host/Network"
+        elif data.obj_type == 'net_group':
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id,
+                       "items": data.member_ids}
+            type_lbl = "Network Group"
+        elif data.obj_type == 'service':
+            if data.dst_port_end and data.dst_port_end != data.dst_port_start:
+                ports = [{"portRange": {"from": data.dst_port_start, "to": data.dst_port_end}}]
+            elif data.dst_port_start:
+                ports = [{"singlePort": {"port": data.dst_port_start}}]
+            else:
+                ports = []
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id, "protocol": data.protocol}
+            if ports:
+                payload["dstPorts"] = ports
+            type_lbl = "Service"
+        elif data.obj_type == 'service_group':
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id,
+                       "serviceIds": data.member_ids}
+            type_lbl = "Service Group"
+        else:
+            return JSONResponse({"status": "error", "message": f"Update not supported for type: {data.obj_type}"}, status_code=400)
+
+        ok = await client.update_object(type_lbl, payload)
+        if not ok:
+            return JSONResponse({"status": "error", "message": "NGFW returned error"}, status_code=500)
+
+        # Update local cache
+        obj_res = await db.execute(select(CachedObject).where(CachedObject.ext_id == oid))
+        cached = obj_res.scalar_one_or_none()
+        if cached:
+            cached.name = name
+            cached.data = {**(cached.data or {}), "name": name}
+
+        await _log_change(db, user, "update", "object", name, oid, dg_id, f"Type: {type_lbl}")
+        await db.commit()
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        logger.error(f"Object update failed: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
     finally:
         await client.close()
@@ -2703,4 +2786,149 @@ async def diff_modified(device_group_id: str = Query(...), db: AsyncSession = De
             }
             for r in rules
         ],
+    })
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    # Device metadata
+    meta_res = await db.execute(select(DeviceMeta))
+    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+
+    # Sidebar tree (minimal — just for sidebar rendering)
+    folders_res = await db.execute(select(Folder).order_by(Folder.device_group_id, Folder.sort_order))
+    all_folders = folders_res.scalars().all()
+
+    orm_tree: Dict[str, Any] = {}
+    folder_to_device: Dict[str, str] = {}
+    for f in all_folders:
+        gid = f.device_group_id or "unknown"
+        if gid == "global":
+            continue
+        folder_to_device[f.id] = gid
+        dev_name = device_names.get(gid, f"Device {gid[:8]}")
+        if gid not in orm_tree:
+            orm_tree[gid] = {"name": dev_name, "id": gid, "sections": {"pre": [], "post": [], "default": []}}
+        f.rules_count = 0
+        sec = f.section.lower() if f.section and f.section.lower() in ('pre', 'post', 'default') else 'pre'
+        orm_tree[gid]["sections"][sec].append(f)
+
+    # Per-device stats: sec rules
+    rules_res = await db.execute(select(CachedRule))
+    all_rules = rules_res.scalars().all()
+
+    # Per-device aggregates
+    dev_stats: Dict[str, Dict] = {}
+    for gid in orm_tree:
+        dev_stats[gid] = {
+            "name": device_names.get(gid, gid[:8]),
+            "device_id": gid,
+            "sec_total": 0,
+            "sec_modified": 0,
+            "nat_total": 0,
+            "nat_modified": 0,
+            "objects": 0,
+        }
+
+    for r in all_rules:
+        gid = folder_to_device.get(r.folder_id or "")
+        if gid and gid in dev_stats:
+            dev_stats[gid]["sec_total"] += 1
+            if r.is_modified:
+                dev_stats[gid]["sec_modified"] += 1
+
+    # NAT rules
+    nat_res = await db.execute(select(CachedNatRule))
+    for r in nat_res.scalars().all():
+        gid = r.device_group_id or ""
+        if gid in dev_stats:
+            dev_stats[gid]["nat_total"] += 1
+            if r.is_modified:
+                dev_stats[gid]["nat_modified"] += 1
+
+    # Objects per device
+    obj_res = await db.execute(select(CachedObject))
+    for o in obj_res.scalars().all():
+        gid = o.device_group_id or ""
+        if gid in dev_stats:
+            dev_stats[gid]["objects"] += 1
+
+    # Global totals
+    total_sec      = sum(v["sec_total"] for v in dev_stats.values())
+    total_modified = sum(v["sec_modified"] for v in dev_stats.values())
+    total_nat      = sum(v["nat_total"] for v in dev_stats.values())
+    total_objects  = sum(v["objects"] for v in dev_stats.values())
+
+    # Recent changelog
+    chlog_res = await db.execute(
+        select(ChangeLog).order_by(ChangeLog.ts.desc()).limit(20)
+    )
+    changelog = []
+    for c in chlog_res.scalars().all():
+        changelog.append({
+            "ts":          c.ts.strftime("%Y-%m-%d %H:%M") if c.ts else "",
+            "username":    c.username,
+            "device":      device_names.get(c.device_group_id or "", c.device_group_id or ""),
+            "entity_type": c.entity_type,
+            "entity_name": c.entity_name or "",
+            "action":      c.action,
+            "detail":      c.detail or "",
+        })
+
+    # Modified rules list (for alert panel)
+    modified_rules = []
+    for r in all_rules:
+        if r.is_modified:
+            gid = folder_to_device.get(r.folder_id or "")
+            modified_rules.append({
+                "id":          r.id,
+                "name":        r.name,
+                "device":      device_names.get(gid or "", gid or "") if gid else "",
+                "modified_at": r.modified_at or "",
+            })
+
+    # Alerts
+    alerts = []
+    if total_modified > 0:
+        alerts.append({
+            "level": "warning",
+            "icon": "fa-triangle-exclamation",
+            "msg": f"{total_modified} rule(s) modified externally — review and acknowledge"
+        })
+    if not orm_tree:
+        alerts.append({
+            "level": "danger",
+            "icon": "fa-database",
+            "msg": "No devices synced yet — click Sync on the Security Rules page"
+        })
+    for gid, s in dev_stats.items():
+        if s["sec_modified"] + s["nat_modified"] > 10:
+            alerts.append({
+                "level": "danger",
+                "icon": "fa-circle-exclamation",
+                "msg": f"Device «{s['name']}» has {s['sec_modified']+s['nat_modified']} modified rules — deploy recommended"
+            })
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request":        request,
+        "tree":           orm_tree,
+        "user":           user,
+        "selected_folder_id": None,
+        "current_device_id":  None,
+        "dev_stats":      list(dev_stats.values()),
+        "total_sec":      total_sec,
+        "total_modified": total_modified,
+        "total_nat":      total_nat,
+        "total_objects":  total_objects,
+        "changelog":      changelog,
+        "modified_rules": modified_rules,
+        "alerts":         alerts,
     })

@@ -558,6 +558,32 @@ class NGFWClient:
             logger.error(f"ListMetricsRulesStats error: {e}")
             return []
 
+    # ------------------------------------------------------------------ Object Update
+
+    _UPDATE_ENDPOINT_MAP = {
+        'Host/Network':  'UpdateNetworkObject',
+        'Network':       'UpdateNetworkObject',
+        'IP Range':      'UpdateNetworkObject',
+        'FQDN':          'UpdateNetworkObject',
+        'Network Group': 'UpdateNetworkObjectGroup',
+        'Service':       'UpdateService',
+        'Service Group': 'UpdateServiceGroup',
+    }
+
+    async def update_object(self, obj_type: str, payload: Dict[str, Any]) -> bool:
+        endpoint = self._UPDATE_ENDPOINT_MAP.get(obj_type)
+        if not endpoint:
+            logger.warning(f"No update endpoint for type '{obj_type}'")
+            return False
+        url = f"{self.base_url}/api/v2/{endpoint}"
+        try:
+            resp = await self.client.post(url, json=payload)
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Update {endpoint} failed: {e}")
+            return False
+
     # ------------------------------------------------------------------ Object CRUD
     _DELETE_ENDPOINT_MAP = {
         'Host/Network':  'DeleteNetworkObject',

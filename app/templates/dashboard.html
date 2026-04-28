@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    <div class="app-main">
+
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-gauge-high" style="color:#3b82f6;margin-right:6px"></i>
+                Dashboard
+            </span>
+            <div class="topbar-sep"></div>
+            <a href="/" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-layer-group"></i> Rules
+            </a>
+            <a href="/analyzer" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-magnifying-glass-chart"></i> Analyzer
+            </a>
+        </div>
+
+        <div class="app-content" style="padding:20px">
+
+            {# ---- Alerts ---- #}
+            {% if alerts %}
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+                {% for a in alerts %}
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:8px;
+                            background:{% if a.level == 'danger' %}rgba(239,68,68,.12){% else %}rgba(245,158,11,.12){% endif %};
+                            border:1px solid {% if a.level == 'danger' %}rgba(239,68,68,.3){% else %}rgba(245,158,11,.3){% endif %}">
+                    <i class="fas {{ a.icon }}" style="color:{% if a.level == 'danger' %}#ef4444{% else %}#f59e0b{% endif %};font-size:14px;flex-shrink:0"></i>
+                    <span style="color:#e2e8f0;font-size:13px">{{ a.msg }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {# ---- Summary Cards ---- #}
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:24px">
+
+                <div class="dash-card" style="border-left:3px solid #3b82f6">
+                    <div class="dash-card-icon" style="background:rgba(59,130,246,.15)">
+                        <i class="fas fa-layer-group" style="color:#3b82f6"></i>
+                    </div>
+                    <div class="dash-card-body">
+                        <div class="dash-card-val">{{ total_sec }}</div>
+                        <div class="dash-card-lbl">Security Rules</div>
+                    </div>
+                </div>
+
+                <div class="dash-card" style="border-left:3px solid {% if total_modified > 0 %}#f59e0b{% else %}#22c55e{% endif %}">
+                    <div class="dash-card-icon" style="background:rgba({% if total_modified > 0 %}245,158,11{% else %}34,197,94{% endif %},.15)">
+                        <i class="fas fa-{% if total_modified > 0 %}triangle-exclamation{% else %}check-circle{% endif %}"
+                           style="color:{% if total_modified > 0 %}#f59e0b{% else %}#22c55e{% endif %}"></i>
+                    </div>
+                    <div class="dash-card-body">
+                        <div class="dash-card-val">{{ total_modified }}</div>
+                        <div class="dash-card-lbl">Modified Externally</div>
+                    </div>
+                </div>
+
+                <div class="dash-card" style="border-left:3px solid #8b5cf6">
+                    <div class="dash-card-icon" style="background:rgba(139,92,246,.15)">
+                        <i class="fas fa-arrows-left-right" style="color:#8b5cf6"></i>
+                    </div>
+                    <div class="dash-card-body">
+                        <div class="dash-card-val">{{ total_nat }}</div>
+                        <div class="dash-card-lbl">NAT Rules</div>
+                    </div>
+                </div>
+
+                <div class="dash-card" style="border-left:3px solid #06b6d4">
+                    <div class="dash-card-icon" style="background:rgba(6,182,212,.15)">
+                        <i class="fas fa-cubes" style="color:#06b6d4"></i>
+                    </div>
+                    <div class="dash-card-body">
+                        <div class="dash-card-val">{{ total_objects }}</div>
+                        <div class="dash-card-lbl">Objects</div>
+                    </div>
+                </div>
+
+                <div class="dash-card" style="border-left:3px solid #f43f5e">
+                    <div class="dash-card-icon" style="background:rgba(244,63,94,.15)">
+                        <i class="fas fa-clock-rotate-left" style="color:#f43f5e"></i>
+                    </div>
+                    <div class="dash-card-body">
+                        <div class="dash-card-val">{{ changelog|length }}</div>
+                        <div class="dash-card-lbl">Recent Changes</div>
+                    </div>
+                </div>
+
+                <div class="dash-card" style="border-left:3px solid #10b981">
+                    <div class="dash-card-icon" style="background:rgba(16,185,129,.15)">
+                        <i class="fas fa-network-wired" style="color:#10b981"></i>
+                    </div>
+                    <div class="dash-card-body">
+                        <div class="dash-card-val">{{ dev_stats|length }}</div>
+                        <div class="dash-card-lbl">Devices</div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+                {# ---- Per-device Cards ---- #}
+                <div>
+                    <div class="dash-section-title">
+                        <i class="fas fa-network-wired" style="color:#3b82f6;margin-right:6px"></i>
+                        Device Status
+                    </div>
+
+                    {% if dev_stats %}
+                    <div style="display:flex;flex-direction:column;gap:10px">
+                        {% for d in dev_stats %}
+                        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                                <i class="fas fa-server" style="color:#3b82f6;font-size:13px"></i>
+                                <span style="color:#e2e8f0;font-weight:600;font-size:14px">{{ d.name or d.device_id }}</span>
+                                {% if d.sec_modified + d.nat_modified > 0 %}
+                                <span style="margin-left:auto;background:rgba(245,158,11,.15);color:#f59e0b;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px">
+                                    {{ d.sec_modified + d.nat_modified }} modified
+                                </span>
+                                {% else %}
+                                <span style="margin-left:auto;background:rgba(34,197,94,.12);color:#22c55e;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px">
+                                    Clean
+                                </span>
+                                {% endif %}
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                                <div style="text-align:center;background:#0f172a;border-radius:7px;padding:8px 4px">
+                                    <div style="color:#3b82f6;font-size:18px;font-weight:700">{{ d.sec_total }}</div>
+                                    <div style="color:#64748b;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">SEC</div>
+                                </div>
+                                <div style="text-align:center;background:#0f172a;border-radius:7px;padding:8px 4px">
+                                    <div style="color:#8b5cf6;font-size:18px;font-weight:700">{{ d.nat_total }}</div>
+                                    <div style="color:#64748b;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">NAT</div>
+                                </div>
+                                <div style="text-align:center;background:#0f172a;border-radius:7px;padding:8px 4px">
+                                    <div style="color:#06b6d4;font-size:18px;font-weight:700">{{ d.objects }}</div>
+                                    <div style="color:#64748b;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">OBJ</div>
+                                </div>
+                            </div>
+                            <div style="margin-top:10px;display:flex;gap:8px">
+                                <a href="/?folder_id=" class="btn btn-sm"
+                                   style="flex:1;background:rgba(59,130,246,.1);color:#60a5fa;border:1px solid rgba(59,130,246,.2);font-size:11px;padding:4px;text-decoration:none;text-align:center;border-radius:6px">
+                                    <i class="fas fa-layer-group" style="font-size:10px"></i> Rules
+                                </a>
+                                <a href="/diff" class="btn btn-sm"
+                                   style="flex:1;background:rgba(139,92,246,.1);color:#a78bfa;border:1px solid rgba(139,92,246,.2);font-size:11px;padding:4px;text-decoration:none;text-align:center;border-radius:6px">
+                                    <i class="fas fa-code-compare" style="font-size:10px"></i> Diff
+                                </a>
+                                <a href="/analyzer" class="btn btn-sm"
+                                   style="flex:1;background:rgba(16,185,129,.1);color:#34d399;border:1px solid rgba(16,185,129,.2);font-size:11px;padding:4px;text-decoration:none;text-align:center;border-radius:6px">
+                                    <i class="fas fa-magnifying-glass-chart" style="font-size:10px"></i> Analyze
+                                </a>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:40px 20px;text-align:center;color:#475569">
+                        <i class="fas fa-database" style="font-size:32px;opacity:.3;display:block;margin-bottom:10px"></i>
+                        No devices synced yet.<br>Go to <a href="/" style="color:#3b82f6">Security Rules</a> and click Sync.
+                    </div>
+                    {% endif %}
+
+                    {# Modified rules alert block #}
+                    {% if modified_rules %}
+                    <div style="margin-top:16px">
+                        <div class="dash-section-title">
+                            <i class="fas fa-triangle-exclamation" style="color:#f59e0b;margin-right:6px"></i>
+                            Externally Modified Rules
+                        </div>
+                        <div style="background:#1e293b;border:1px solid rgba(245,158,11,.2);border-radius:10px;overflow:hidden">
+                            <table style="width:100%;border-collapse:collapse;font-size:12px">
+                                <thead>
+                                    <tr style="background:rgba(245,158,11,.08)">
+                                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">Rule</th>
+                                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">Device</th>
+                                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">Modified</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for r in modified_rules[:10] %}
+                                    <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''">
+                                        <td style="padding:7px 12px">
+                                            <a href="/" style="color:#fbbf24;text-decoration:none;font-weight:500">{{ r.name }}</a>
+                                        </td>
+                                        <td style="padding:7px 12px;color:#64748b">{{ r.device }}</td>
+                                        <td style="padding:7px 12px;color:#64748b">{{ r.modified_at[:16] if r.modified_at else '—' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            {% if modified_rules|length > 10 %}
+                            <div style="padding:8px 12px;text-align:center;color:#64748b;font-size:11px;border-top:1px solid rgba(255,255,255,.04)">
+                                … and {{ modified_rules|length - 10 }} more
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                </div>
+
+                {# ---- Recent Changes ---- #}
+                <div>
+                    <div class="dash-section-title">
+                        <i class="fas fa-clock-rotate-left" style="color:#f43f5e;margin-right:6px"></i>
+                        Recent Changes
+                        <a href="/changelog" style="margin-left:auto;color:#3b82f6;font-size:11px;font-weight:400;text-decoration:none">View All →</a>
+                    </div>
+
+                    {% if changelog %}
+                    <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
+                        <table style="width:100%;border-collapse:collapse;font-size:12px">
+                            <thead>
+                                <tr style="background:rgba(255,255,255,.04)">
+                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">Time</th>
+                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">User</th>
+                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">Action</th>
+                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">Target</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for c in changelog %}
+                                <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s"
+                                    onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                                    onmouseout="this.style.background=''">
+                                    <td style="padding:7px 12px;color:#64748b;white-space:nowrap">{{ c.ts }}</td>
+                                    <td style="padding:7px 12px;color:#94a3b8;font-weight:500">{{ c.username }}</td>
+                                    <td style="padding:7px 12px">
+                                        <span style="display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;text-transform:uppercase;
+                                            {% if c.action == 'create' %}background:rgba(34,197,94,.15);color:#22c55e
+                                            {% elif c.action == 'delete' %}background:rgba(239,68,68,.15);color:#ef4444
+                                            {% elif c.action == 'update' %}background:rgba(59,130,246,.15);color:#60a5fa
+                                            {% elif c.action == 'toggle' %}background:rgba(139,92,246,.15);color:#a78bfa
+                                            {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}">
+                                            {{ c.action }}
+                                        </span>
+                                        <span style="color:#64748b;font-size:10px;margin-left:4px">{{ c.entity_type }}</span>
+                                    </td>
+                                    <td style="padding:7px 12px;color:#e2e8f0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                                        title="{{ c.entity_name }}">{{ c.entity_name or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:40px 20px;text-align:center;color:#475569">
+                        <i class="fas fa-clock-rotate-left" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
+                        No changes recorded yet.
+                    </div>
+                    {% endif %}
+
+                    {# Quick Nav links #}
+                    <div style="margin-top:16px">
+                        <div class="dash-section-title">
+                            <i class="fas fa-bolt" style="color:#f59e0b;margin-right:6px"></i>
+                            Quick Navigation
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                            {% set nav_items = [
+                                ("/", "fa-layer-group", "#3b82f6", "Security"),
+                                ("/nat", "fa-arrows-left-right", "#8b5cf6", "NAT"),
+                                ("/objects", "fa-cubes", "#06b6d4", "Objects"),
+                                ("/logs", "fa-list-alt", "#10b981", "Logs"),
+                                ("/policy", "fa-shield-virus", "#f59e0b", "Policy"),
+                                ("/system", "fa-server", "#64748b", "System"),
+                                ("/analyzer", "fa-magnifying-glass-chart", "#a78bfa", "Analyzer"),
+                                ("/changelog", "fa-clock-rotate-left", "#f43f5e", "Changelog"),
+                                ("/diff", "fa-code-compare", "#34d399", "Diff"),
+                            ] %}
+                            {% for url, icon, color, label in nav_items %}
+                            <a href="{{ url }}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                                        gap:5px;padding:12px 6px;border-radius:8px;
+                                        background:#1e293b;border:1px solid rgba(255,255,255,.07);
+                                        text-decoration:none;transition:.15s"
+                               onmouseover="this.style.background='rgba(255,255,255,.06)'"
+                               onmouseout="this.style.background='#1e293b'">
+                                <i class="fas {{ icon }}" style="color:{{ color }};font-size:16px"></i>
+                                <span style="color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">{{ label }}</span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>{# /grid #}
+
+        </div>{# /app-content #}
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+<style>
+.dash-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #1e293b;
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+.dash-card-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+.dash-card-val {
+    font-size: 24px;
+    font-weight: 700;
+    color: #e2e8f0;
+    line-height: 1;
+}
+.dash-card-lbl {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-top: 2px;
+}
+.dash-section-title {
+    display: flex;
+    align-items: center;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    margin-bottom: 10px;
+}
+</style>
+{% endblock %}
