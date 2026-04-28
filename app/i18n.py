@@ -458,10 +458,13 @@ def make_t(lang: str):
 
 
 def base_ctx(request, **kwargs) -> dict:
+    from app.version import VERSION, RELEASE_CHANNEL
     lang = get_lang(request)
     return {
         "request": request,
         "lang": lang,
         "t": make_t(lang),
+        "app_version": VERSION,
+        "app_channel": RELEASE_CHANNEL,
         **kwargs,
     }

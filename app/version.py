@@ -1,0 +1,3 @@
+VERSION = "1.1"
+VERSION_SHORT = "1.1"
+RELEASE_CHANNEL = "stable"
