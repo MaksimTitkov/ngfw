@@ -9,54 +9,53 @@
         </div>
     </div>
 
-    {# Nav tabs #}
-    <div style="display:flex;flex-wrap:wrap;gap:3px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06)">
-        <a href="/" style="flex:1;min-width:40px;text-align:center;padding:5px 3px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(59,130,246,.25);color:#60a5fa;transition:.15s" title="{{ t('nav_sec') }}">
-            <i class="fas fa-layer-group" style="font-size:10px;display:block;margin-bottom:1px"></i>SEC
+    {# Determine active section from URL path #}
+    {% set path = request.url.path %}
+    {% if path in ['/', '/nat', '/objects'] %}
+        {% set active_sec = 'sec' %}
+    {% elif path == '/logs' %}
+        {% set active_sec = 'log' %}
+    {% elif path in ['/system', '/policy'] %}
+        {% set active_sec = 'sys' %}
+    {% else %}
+        {% set active_sec = 'dash' %}
+    {% endif %}
+
+    {# ── Main section tabs (4 items) ── #}
+    <div style="display:flex;gap:3px;padding:8px 10px 0">
+
+        <a href="/"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
+                  {% if active_sec == 'sec' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_sec') }}">
+            <i class="fas fa-layer-group" style="font-size:11px;display:block;margin-bottom:2px"></i>SEC
         </a>
-        <a href="/nat" style="flex:1;min-width:40px;text-align:center;padding:5px 3px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_nat') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-arrows-left-right" style="font-size:10px;display:block;margin-bottom:1px"></i>NAT
+
+        <a href="/logs"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
+                  {% if active_sec == 'log' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_log') }}">
+            <i class="fas fa-list-alt" style="font-size:11px;display:block;margin-bottom:2px"></i>LOG
         </a>
-        <a href="/objects" style="flex:1;min-width:40px;text-align:center;padding:5px 3px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_obj') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-cubes" style="font-size:10px;display:block;margin-bottom:1px"></i>OBJ
+
+        <a href="/system"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
+                  {% if active_sec == 'sys' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_sys') }}">
+            <i class="fas fa-server" style="font-size:11px;display:block;margin-bottom:2px"></i>SYS
         </a>
-        <a href="/logs" style="flex:1;min-width:40px;text-align:center;padding:5px 3px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_log') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-list-alt" style="font-size:10px;display:block;margin-bottom:1px"></i>LOG
-        </a>
-        <a href="/policy" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_pol') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-shield-virus" style="font-size:10px;display:block;margin-bottom:1px"></i>POL
-        </a>
-        <a href="/system" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_sys') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-server" style="font-size:10px;display:block;margin-bottom:1px"></i>SYS
-        </a>
-        <a href="/analyzer" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_anly') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-magnifying-glass-chart" style="font-size:10px;display:block;margin-bottom:1px"></i>ANLY
-        </a>
-        <a href="/changelog" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_clg') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-clock-rotate-left" style="font-size:10px;display:block;margin-bottom:1px"></i>CLG
-        </a>
-        <a href="/diff" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_diff') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-code-compare" style="font-size:10px;display:block;margin-bottom:1px"></i>DIFF
-        </a>
-        <a href="/dashboard" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_dash') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-gauge-high" style="font-size:10px;display:block;margin-bottom:1px"></i>DASH
-        </a>
-        <button onclick="openQuickSearch()" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s;border:none;cursor:pointer" title="{{ t('nav_srch') }} (Ctrl+K)"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-magnifying-glass" style="font-size:10px;display:block;margin-bottom:1px"></i>SRCH
-        </button>
-        <a href="/templates" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8;transition:.15s" title="{{ t('nav_tmpl') }}"
-           onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-            <i class="fas fa-bookmark" style="font-size:10px;display:block;margin-bottom:1px"></i>TMPL
+
+        <a href="/dashboard"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;position:relative;transition:.15s;
+                  {% if active_sec == 'dash' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_dash') }}">
+            <i class="fas fa-gauge-high" style="font-size:11px;display:block;margin-bottom:2px"></i>DASH
+            {% if analysis_issue_count > 0 %}
+            <span style="position:absolute;top:3px;right:3px;background:#ef4444;color:#fff;font-size:8px;font-weight:800;
+                         padding:1px 3px;border-radius:8px;line-height:1.4;min-width:13px;text-align:center">
+                {{ analysis_issue_count }}
+            </span>
+            {% endif %}
         </a>
     </div>
 
@@ -100,8 +99,19 @@
     {# ── Scroll area: page-specific content ── #}
     <div class="sidebar-scroll">
 
-        {% if tree %}
-        <div class="sidebar-section-label">{{ t('sidebar_devices') }}</div>
+        {# ── SEC: security folder tree ── #}
+        {% if active_sec == 'sec' and path == '/' %}
+            {% if tree %}
+            <div class="sidebar-section-label">{{ t('sidebar_devices') }}</div>
+            {% for gid, data in tree.items() %}
+            <div class="sidebar-device">
+                <div class="sidebar-device-header {{ 'open' if gid == current_device_id else '' }}"
+                     onclick="toggleDevice(this, '{{ gid }}')">
+                    <i class="fas fa-network-wired" style="color:#3b82f6;font-size:12px;flex-shrink:0"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ data.name }}</span>
+                    <i class="fas fa-chevron-right chevron"></i>
+                </div>
+                <div class="sidebar-folders {{ 'open' if gid == current_device_id else '' }}" id="dev_{{ gid }}">
 
                     {% for section_key, badge_label in [('pre','PRE'),('default','DEFAULT'),('post','POST')] %}
                     {% if data.sections[section_key] %}
@@ -127,76 +137,132 @@
                     </button>
                 </div>
             </div>
-
-            <div class="sidebar-folders {{ 'open' if gid == current_device_id else '' }}" id="dev_{{ gid }}">
-
-                {# --- PRE section --- #}
-                {% if data.sections.pre %}
-                <div style="padding:4px 0 2px 8px">
-                    <span class="section-badge pre">PRE</span>
-                </div>
-                {% for f in data.sections.pre %}
-                <a href="/?folder_id={{ f.id }}"
-                   class="folder-link {{ 'active' if f.id|string == selected_folder_id|string else '' }}">
-                    <i class="fas fa-folder{{ '-open' if f.id|string == selected_folder_id|string else '' }}"
-                       style="font-size:11px;flex-shrink:0"></i>
-                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-                          title="{{ f.name }}">{{ f.name }}</span>
-                    <span class="folder-count">{{ f.rules_count }}</span>
-                </a>
-                {% endfor %}
-                {% endif %}
-
-                {# --- DEFAULT section --- #}
-                {% if data.sections.default %}
-                <div style="padding:6px 0 2px 8px;margin-top:4px">
-                    <span class="section-badge default">DEFAULT</span>
-                </div>
-                {% for f in data.sections.default %}
-                <a href="/?folder_id={{ f.id }}"
-                   class="folder-link {{ 'active' if f.id|string == selected_folder_id|string else '' }}">
-                    <i class="fas fa-folder{{ '-open' if f.id|string == selected_folder_id|string else '' }}"
-                       style="font-size:11px;flex-shrink:0"></i>
-                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-                          title="{{ f.name }}">{{ f.name }}</span>
-                    <span class="folder-count">{{ f.rules_count }}</span>
-                </a>
-                {% endfor %}
-                {% endif %}
-
-                {# --- POST section --- #}
-                {% if data.sections.post %}
-                <div style="padding:6px 0 2px 8px;margin-top:4px">
-                    <span class="section-badge post">POST</span>
-                </div>
-                {% for f in data.sections.post %}
-                <a href="/?folder_id={{ f.id }}"
-                   class="folder-link {{ 'active' if f.id|string == selected_folder_id|string else '' }}">
-                    <i class="fas fa-folder{{ '-open' if f.id|string == selected_folder_id|string else '' }}"
-                       style="font-size:11px;flex-shrink:0"></i>
-                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-                          title="{{ f.name }}">{{ f.name }}</span>
-                    <span class="folder-count">{{ f.rules_count }}</span>
-                </a>
-                {% endfor %}
-                {% endif %}
-
-                {# Add folder button #}
-                <button onclick="openCreateFolder('{{ gid }}')"
-                        style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;padding:5px 10px;color:#475569;font-size:11px;cursor:pointer;border-radius:5px;margin-top:4px;transition:.15s"
-                        onmouseover="this.style.background='rgba(255,255,255,.06)'"
-                        onmouseout="this.style.background='none'">
-                    <i class="fas fa-plus" style="font-size:10px"></i> {{ t('sidebar_add_folder') }}
-                </button>
-
+            {% endfor %}
+            {% else %}
+            <div style="padding:24px 16px;text-align:center;color:#475569;font-size:12px">
+                <i class="fas fa-rotate" style="font-size:24px;opacity:.3;display:block;margin-bottom:8px"></i>
+                {{ t('sidebar_no_devices') }}<br>{{ t('sidebar_click_sync') }}
             </div>
             {% endif %}
 
-        {% else %}
-        <div style="padding:24px 16px;text-align:center;color:#475569;font-size:12px">
-            <i class="fas fa-rotate" style="font-size:24px;opacity:.3;display:block;margin-bottom:8px"></i>
-            {{ t('sidebar_no_devices') }}<br>{{ t('sidebar_click_sync') }}
-        </div>
+        {# ── NAT: nat folder tree ── #}
+        {% elif active_sec == 'sec' and path == '/nat' %}
+            {% if tree %}
+            <div class="sidebar-section-label">{{ t('sidebar_devices') }}</div>
+            {% for gid, data in tree.items() %}
+            <div class="sidebar-device">
+                <div class="sidebar-device-header {{ 'open' if gid == current_device_id else '' }}"
+                     onclick="toggleDevice(this, '{{ gid }}')">
+                    <i class="fas fa-network-wired" style="color:#3b82f6;font-size:12px;flex-shrink:0"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ data.name }}</span>
+                    <i class="fas fa-chevron-right chevron"></i>
+                </div>
+                <div class="sidebar-folders {{ 'open' if gid == current_device_id else '' }}" id="dev_{{ gid }}">
+
+                    {% for section_key, badge_label in [('pre','PRE'),('default','DEFAULT'),('post','POST')] %}
+                    {% if data.sections[section_key] %}
+                    <div style="padding:{{ '4px' if loop.first else '6px' }} 0 2px 8px;{% if not loop.first %}margin-top:4px;{% endif %}">
+                        <span class="section-badge {{ section_key }}">{{ badge_label }}</span>
+                    </div>
+                    {% for f in data.sections[section_key] %}
+                    <a href="/nat?folder_id={{ f.id }}"
+                       class="folder-link {{ 'active' if f.id|string == selected_folder_id|string else '' }}">
+                        <i class="fas fa-folder{{ '-open' if f.id|string == selected_folder_id|string else '' }}" style="font-size:11px;flex-shrink:0"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ f.name }}">{{ f.name }}</span>
+                        <span class="folder-count">{{ f.rules_count }}</span>
+                    </a>
+                    {% endfor %}
+                    {% endif %}
+                    {% endfor %}
+
+                    <button onclick="openCreateFolder('{{ gid }}')"
+                            style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;padding:5px 10px;color:#475569;font-size:11px;cursor:pointer;border-radius:5px;margin-top:4px;transition:.15s"
+                            onmouseover="this.style.background='rgba(255,255,255,.06)'"
+                            onmouseout="this.style.background='none'">
+                        <i class="fas fa-plus" style="font-size:10px"></i> {{ t('sidebar_add_folder') }}
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div style="padding:24px 16px;text-align:center;color:#475569;font-size:12px">
+                <i class="fas fa-rotate" style="font-size:24px;opacity:.3;display:block;margin-bottom:8px"></i>
+                {{ t('sidebar_no_devices') }}<br>{{ t('sidebar_click_sync') }}
+            </div>
+            {% endif %}
+
+        {# ── Objects: device list ── #}
+        {% elif active_sec == 'sec' and path == '/objects' %}
+            <div class="sidebar-section-label">{{ t('lbl_device') }}</div>
+            {% if devices is defined and devices %}
+                {% for dev in devices %}
+                <a href="/objects?device_id={{ dev.device_id }}&type_filter={{ type_filter or 'net' }}"
+                   class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
+                    <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
+                </a>
+                {% endfor %}
+            {% else %}
+                <div style="padding:16px;font-size:12px;color:#475569;text-align:center">{{ t('sidebar_no_devices') }}</div>
+            {% endif %}
+
+        {# ── LOG: log source info ── #}
+        {% elif active_sec == 'log' %}
+            <div class="sidebar-section-label">Log Source</div>
+            <div style="padding:10px 12px;font-size:11px;color:#64748b;line-height:1.5">
+                <i class="fas fa-globe" style="color:#3b82f6;margin-right:5px"></i>
+                <strong style="color:#94a3b8">Global logs</strong><br>
+                <span style="color:#475569">Logs are collected across all devices. Use filters to narrow results.</span>
+            </div>
+            {% if log_ttl_hours is defined %}
+            <div style="padding:4px 12px 8px">
+                <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">TTL</div>
+                <div style="font-size:11px;color:#64748b">Cache auto-purges after <strong style="color:#f59e0b">{{ log_ttl_hours }}h</strong></div>
+            </div>
+            {% endif %}
+
+        {# ── SYS / POL: device list ── #}
+        {% elif active_sec == 'sys' %}
+            <div class="sidebar-section-label">{{ t('lbl_device') }}</div>
+            {% if devices is defined and devices %}
+                {% for dev in devices %}
+                <a href="{{ path }}?device_id={{ dev.device_id }}{% if active_tab is defined %}&tab={{ active_tab }}{% endif %}"
+                   class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
+                    <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
+                </a>
+                {% endfor %}
+            {% else %}
+                <div style="padding:16px;font-size:12px;color:#475569;text-align:center">{{ t('sidebar_no_devices') }}</div>
+            {% endif %}
+
+        {# ── DASH: device list on /dashboard, neutral on other dash pages ── #}
+        {% elif active_sec == 'dash' %}
+            {% if path == '/dashboard' %}
+                <div class="sidebar-section-label">{{ t('lbl_device') }}</div>
+                {% if devices is defined and devices %}
+                    <a href="/dashboard"
+                       class="folder-link {{ 'active' if not selected_device_id else '' }}"
+                       style="gap:6px">
+                        <i class="fas fa-globe" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t('dash_all_devices') }}</span>
+                    </a>
+                    {% for dev in devices %}
+                    <a href="/dashboard?device_id={{ dev.device_id }}"
+                       class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
+                        <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
+                    </a>
+                    {% endfor %}
+                {% else %}
+                    <div style="padding:16px;font-size:12px;color:#475569;text-align:center">{{ t('sidebar_no_devices') }}</div>
+                {% endif %}
+            {% else %}
+                <div style="padding:20px 14px;text-align:center;color:#334155;font-size:11px">
+                    <i class="fas fa-gauge-high" style="font-size:20px;opacity:.2;display:block;margin-bottom:8px"></i>
+                    Dashboard &amp; Analytics
+                </div>
+            {% endif %}
         {% endif %}
 
     </div>{# /sidebar-scroll #}
@@ -211,26 +277,24 @@
         </div>
 
         {# Version badge #}
-        <span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;
+        <span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;white-space:nowrap;
                      {% if app_channel == 'stable' %}background:rgba(34,197,94,.15);color:#4ade80
                      {% elif app_channel == 'test' %}background:rgba(245,158,11,.15);color:#fbbf24
                      {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}"
               title="NGFW Manager v{{ app_version }}">v{{ app_version }}</span>
 
         {# Language switcher #}
-        <div style="display:flex;gap:3px;margin-right:6px">
+        <div style="display:flex;gap:3px">
             <button onclick="setLang('en')"
-                    style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;border:none;cursor:pointer;transition:.15s;
-                           {% if lang == 'en' %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#475569{% endif %}"
-                    title="English">EN</button>
+                    style="padding:2px 5px;border-radius:4px;font-size:9px;font-weight:700;border:none;cursor:pointer;transition:.15s;
+                           {% if lang == 'en' %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#475569{% endif %}">EN</button>
             <button onclick="setLang('ru')"
-                    style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;border:none;cursor:pointer;transition:.15s;
-                           {% if lang == 'ru' %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#475569{% endif %}"
-                    title="Русский">RU</button>
+                    style="padding:2px 5px;border-radius:4px;font-size:9px;font-weight:700;border:none;cursor:pointer;transition:.15s;
+                           {% if lang == 'ru' %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#475569{% endif %}">RU</button>
         </div>
 
         <a href="/logout" title="{{ t('btn_logout') }}"
-           style="color:#475569;text-decoration:none;padding:4px 6px;border-radius:6px;transition:.15s"
+           style="color:#475569;text-decoration:none;padding:4px 5px;border-radius:6px;transition:.15s"
            onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#475569'">
             <i class="fas fa-power-off"></i>
         </a>
@@ -243,7 +307,6 @@ function toggleDevice(el, gid) {
     const panel = document.getElementById('dev_' + gid);
     if (panel) panel.classList.toggle('open');
 }
-
 function setLang(l) {
     document.cookie = 'lang=' + l + ';path=/;max-age=31536000;SameSite=Lax';
     location.reload();
