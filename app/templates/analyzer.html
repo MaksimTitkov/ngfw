@@ -30,7 +30,7 @@
                 <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
                     <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">{{ t('lbl_device') }}</label>
                     <select id="selDevice" class="form-select form-select-sm"
-                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:13px"
+                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:12px;width:180px"
                             onchange="onDeviceChange()">
                         <option value="">{{ t('lbl_select_device') }}</option>
                         {% for d in devices %}
@@ -41,10 +41,20 @@
                 <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
                     <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">{{ t('lbl_folder') }}</label>
                     <select id="selFolder" class="form-select form-select-sm"
-                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:13px"
+                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:12px;width:160px"
                             disabled>
                         <option value="">{{ t('lbl_all_folders') }}</option>
                     </select>
+                    <button id="btnRun"
+                            style="background:rgba(124,58,237,.2);color:#a78bfa;border:1px solid rgba(124,58,237,.3);padding:4px 14px;border-radius:6px;font-weight:600;font-size:11px;cursor:pointer;transition:.15s"
+                            onclick="runAnalysis()" disabled
+                            title="{{ t('btn_analyze') }}">
+                        <i class="fas fa-filter"></i> {{ t('btn_analyze') }}
+                    </button>
+                    <button style="background:rgba(59,130,246,.1);color:#60a5fa;border:1px solid rgba(59,130,246,.2);padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;transition:.15s"
+                            onclick="loadCached()" title="{{ t('btn_refresh') }}">
+                        <i class="fas fa-rotate"></i>
+                    </button>
                 </div>
                 <button class="btn btn-sm" id="btnRun"
                         style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;border:none;padding:6px 20px;border-radius:6px;font-weight:600;font-size:13px"
@@ -234,7 +244,12 @@ function onDeviceChange() {
     selFolder.disabled = true;
     btnRun.disabled = !devId;
 
-    if (!devId || !TREE[devId]) return;
+    if (!devId) {
+        // Reset to full cached result
+        if (_lastResult) renderResults(_lastResult);
+        return;
+    }
+    if (!TREE[devId]) return;
 
     const sections = TREE[devId].sections;
     ['pre','default','post'].forEach(sec => {
@@ -247,6 +262,7 @@ function onDeviceChange() {
         });
     });
     selFolder.disabled = false;
+    btnRun.disabled = false;
 }
 
 async function runAnalysis() {
@@ -257,7 +273,6 @@ async function runAnalysis() {
     document.getElementById('summaryRow').style.display = 'none';
     document.getElementById('resultsArea').style.display = 'none';
     document.getElementById('spinner').style.display = 'block';
-    document.getElementById('allClear').style.display = 'none';
 
     try {
         const resp = await fetch('/api/v1/analyzer/run', {
@@ -266,7 +281,6 @@ async function runAnalysis() {
             body: JSON.stringify({device_group_id: devId, folder_id: folderId || null})
         });
         const data = await resp.json();
-        _lastResult = data;
         renderResults(data);
     } catch(e) {
         showToast('Error: ' + e, 'danger');

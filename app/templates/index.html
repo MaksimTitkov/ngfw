@@ -108,8 +108,11 @@
                     </thead>
                     <tbody class="sortable-rules" data-folder-id="{{ item.folder.id }}">
                         {% for r in item.rules %}
-                        <tr data-id="{{ r.id }}" ondblclick="openEditRule({{ r | tojson | safe }})"
-                            {% if r.is_modified %}style="background:#fffbeb;border-left:3px solid #f59e0b"{% endif %}>
+                        <tr data-id="{{ r.id }}" ondblclick='openEditRule({{ r | tojson | safe }})'
+                            {% if not r.enabled and r.is_modified %}style="opacity:.45;border-left:3px solid #f59e0b"
+                            {% elif r.is_modified %}style="background:rgba(245,158,11,.07);border-left:3px solid #f59e0b"
+                            {% elif not r.enabled %}style="opacity:.42"
+                            {% endif %}>
                             <td style="padding-left:10px">
                                 <i class="fas fa-grip-vertical drag-handle"></i>
                             </td>
@@ -1272,7 +1275,7 @@ document.getElementById('rm_name').addEventListener('keydown', e => { if (e.key 
    ===================================================== */
 let _qcCallback = null;
 let _qcModal = null;
-function getQcModal() { return _qcModal ||= new bootstrap.Modal(document.getElementById('quickCreateModal')); }
+function getQcModal() { return _qcModal ||= new bootstrap.Modal(document.getElementById('quickCreateModal'), {backdrop: false}); }
 
 const QC_TYPES = {
     net: [

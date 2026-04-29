@@ -63,6 +63,16 @@ async def init_db():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    # Restore analysis counters from DB so sidebar badge is correct on restart
+    try:
+        from app.services.analyzer_service import load_state_from_db
+        async with async_session() as session:
+            await load_state_from_db(session)
+        logger.info("[analyzer] State restored from DB")
+    except Exception as e:
+        logger.warning(f"[analyzer] Could not restore state: {e}")
+
     task = asyncio.create_task(_auto_purge_logs())
     logger.info(f"[log-purge] Background task started (TTL={LOG_TTL_HOURS}h, interval={PURGE_INTERVAL_SEC}s)")
     yield

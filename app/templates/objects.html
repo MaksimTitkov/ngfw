@@ -2,39 +2,12 @@
 {% block title %}Objects — NGFW Manager{% endblock %}
 
 {% block body %}
-<div class="obj-page-layout">
+<div class="app-layout">
 
-    {# ---- Device sidebar ---- #}
-    <aside class="obj-sidebar">
-        <div style="padding:0 8px 12px;border-bottom:1px solid var(--border);margin-bottom:8px">
-            <div style="display:flex;gap:3px;margin-bottom:8px">
-                <a href="/" style="flex:1;text-align:center;padding:4px 3px;border-radius:5px;font-size:10px;font-weight:600;text-decoration:none;background:rgba(59,130,246,.12);color:#64748b;transition:.15s"
-                   onmouseover="this.style.background='rgba(59,130,246,.2)'" onmouseout="this.style.background='rgba(59,130,246,.12)'">
-                    <i class="fas fa-layer-group" style="font-size:9px"></i> SEC
-                </a>
-                <a href="/nat" style="flex:1;text-align:center;padding:4px 3px;border-radius:5px;font-size:10px;font-weight:600;text-decoration:none;background:rgba(100,116,139,.12);color:#64748b;transition:.15s"
-                   onmouseover="this.style.background='rgba(100,116,139,.2)'" onmouseout="this.style.background='rgba(100,116,139,.12)'">
-                    <i class="fas fa-arrows-left-right" style="font-size:9px"></i> NAT
-                </a>
-                <a href="/objects" style="flex:1;text-align:center;padding:4px 3px;border-radius:5px;font-size:10px;font-weight:600;text-decoration:none;background:rgba(59,130,246,.25);color:#3b82f6">
-                    <i class="fas fa-cubes" style="font-size:9px"></i> OBJ
-                </a>
-            </div>
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#94a3b8;padding:0 4px">
-                Devices
-            </div>
-        </div>
-        {% for dev in devices %}
-        <a href="/objects?device_id={{ dev.device_id }}&type_filter={{ type_filter }}"
-           class="dev-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
-            <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0"></i>
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
-        </a>
-        {% endfor %}
-    </aside>
+    {% include "components/sidebar.html" %}
 
     {# ---- Main area ---- #}
-    <div class="obj-main">
+    <div class="app-main">
 
         {# Top bar #}
         <div class="app-topbar">
@@ -50,7 +23,7 @@
             <div style="flex:1"></div>
 
             {# "+ Create" — only for supported types #}
-            {% if type_filter in ['net', 'service', 'zone'] and selected_device_id %}
+            {% if type_filter in ['net', 'service', 'zone', 'urlcat'] and selected_device_id %}
             <button class="btn-top success" onclick="openCreateModal()" style="padding:5px 14px">
                 <i class="fas fa-plus me-1"></i>Create
             </button>
@@ -61,31 +34,33 @@
         </div>
 
         {# Type filter tabs #}
-        <div class="type-tabs">
+        <div style="display:flex;gap:4px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.07);background:#0f172a;flex-wrap:wrap">
             {% for t, label, icon in [
-                ('net',     'Networks',     'fa-network-wired'),
-                ('service', 'Services',     'fa-gear'),
-                ('zone',    'Zones',        'fa-map-location-dot'),
-                ('app',     'Applications', 'fa-puzzle-piece'),
-                ('user',    'Users',        'fa-users')
+                ('net',     'Networks',      'fa-network-wired'),
+                ('service', 'Services',      'fa-gear'),
+                ('zone',    'Zones',         'fa-map-location-dot'),
+                ('urlcat',  'URL Categories','fa-link'),
+                ('app',     'Applications',  'fa-puzzle-piece'),
+                ('user',    'Users',         'fa-users')
             ] %}
             <a href="/objects?device_id={{ selected_device_id }}&type_filter={{ t }}"
-               class="type-tab {{ 'active' if type_filter == t else '' }}">
+               style="padding:5px 12px;border-radius:6px;border:1px solid transparent;font-size:12px;font-weight:600;text-decoration:none;transition:.15s;
+                      {% if type_filter == t %}background:#3b82f6;color:#fff;border-color:#3b82f6{% else %}background:rgba(255,255,255,.04);color:#64748b{% endif %}">
                 <i class="fas {{ icon }} me-1"></i>{{ label }}
             </a>
             {% endfor %}
 
             <div style="margin-left:auto;position:relative">
-                <i class="fas fa-search" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:12px;pointer-events:none"></i>
+                <i class="fas fa-search" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#64748b;font-size:12px;pointer-events:none"></i>
                 <input type="text" id="obj_search" placeholder="Filter by name…"
                        oninput="filterTable(this.value)"
-                       style="padding:5px 10px 5px 28px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:200px;outline:none"
-                       onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='var(--border)'">
+                       style="padding:5px 10px 5px 28px;border:1px solid rgba(255,255,255,.1);border-radius:6px;font-size:12px;width:200px;outline:none;background:#1e293b;color:#e2e8f0"
+                       onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='rgba(255,255,255,.1)'">
             </div>
         </div>
 
         {# Bulk bar #}
-        <div id="bulkBar" class="bulk-bar hidden">
+        <div id="bulkBar" class="bulk-bar hidden" style="background:#1e293b;border-bottom:1px solid rgba(255,255,255,.07)">
             <span><span id="selCount">0</span> selected</span>
             <button class="btn-bulk red" onclick="bulkDelete()">
                 <i class="fas fa-trash me-1"></i>Delete from device
@@ -96,7 +71,7 @@
         </div>
 
         {# Table #}
-        <div class="obj-content">
+        <div style="flex:1;overflow-y:auto">
             <table class="rules-table" id="obj_table">
                 <thead>
                     <tr>
@@ -126,23 +101,45 @@
                         <td>
                             <div style="font-weight:600;font-size:13px;color:#0f172a">{{ obj.name }}</div>
                         </td>
-                        <td style="font-size:12px;color:#334155">
+                        <td style="font-size:12px;color:#94a3b8">
                             {{ format_obj_details(obj) | safe }}
                         </td>
                         <td>
                             <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;
-                                {% if 'Group' in obj.type %}background:#fef3c7;color:#92400e
-                                {% elif obj.category == 'service' %}background:#f0fdf4;color:#166534
-                                {% elif obj.category == 'zone' %}background:#ede9fe;color:#5b21b6
-                                {% else %}background:#eff6ff;color:#1d4ed8{% endif %}">
+                                {% if 'Group' in obj.type %}background:rgba(245,158,11,.15);color:#f59e0b
+                                {% elif obj.category == 'service' %}background:rgba(34,197,94,.12);color:#4ade80
+                                {% elif obj.category == 'zone' %}background:rgba(139,92,246,.15);color:#a78bfa
+                                {% else %}background:rgba(59,130,246,.12);color:#60a5fa{% endif %}">
                                 {{ obj.type }}
                             </span>
                         </td>
                         <td>
                             {% if obj.device_group_id == 'global' %}
-                            <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:10px;font-weight:700">GLOBAL</span>
+                            <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:rgba(99,102,241,.15);color:#818cf8;font-size:10px;font-weight:700">GLOBAL</span>
                             {% else %}
-                            <span style="font-size:11px;color:#94a3b8">Local</span>
+                            <span style="font-size:11px;color:#475569">Local</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align:right;padding-right:10px;white-space:nowrap">
+                            <a href="/search?q={{ obj.ext_id }}&mode=object" target="_self"
+                               title="Find in Rules"
+                               style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;
+                                      background:rgba(16,185,129,.1);color:#34d399;font-size:11px;font-weight:600;text-decoration:none;margin-right:3px">
+                                <i class="fas fa-sitemap" style="font-size:10px"></i>
+                            </a>
+                            {% if type_filter not in ['app', 'user'] %}
+                            {% if type_filter != 'zone' %}
+                            <button title="Replace in Rules"
+                                    style="background:rgba(245,158,11,.1);border:none;color:#f59e0b;padding:2px 7px;border-radius:5px;font-size:11px;cursor:pointer;margin-right:3px"
+                                    onclick="openReplaceModal(this.closest('tr').dataset.obj)">
+                                <i class="fas fa-right-left" style="font-size:10px"></i>
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-sm" title="Edit"
+                                    style="background:rgba(59,130,246,.1);border:none;color:#60a5fa;padding:2px 8px;border-radius:5px;font-size:11px"
+                                    onclick="openEditModal(this.closest('tr').dataset.obj)">
+                                <i class="fas fa-pen"></i>
+                            </button>
                             {% endif %}
                         </td>
                         <td style="text-align:right;padding-right:10px;white-space:nowrap">
@@ -175,7 +172,7 @@
 
         {# Pagination #}
         {% if total_pages > 1 %}
-        <div style="display:flex;align-items:center;justify-content:center;gap:4px;padding:12px;border-top:1px solid var(--border);background:var(--surface)">
+        <div style="display:flex;align-items:center;justify-content:center;gap:4px;padding:12px;border-top:1px solid rgba(255,255,255,.07);background:#0f172a">
             <a href="/objects?device_id={{ selected_device_id }}&type_filter={{ type_filter }}&page=1"
                class="btn-top {{ 'disabled' if page <= 1 else '' }}" style="text-decoration:none">
                 <i class="fas fa-angle-double-left"></i>
@@ -198,8 +195,126 @@
         </div>
         {% endif %}
 
-    </div>{# /obj-main #}
-</div>{# /obj-page-layout #}
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+{# ====================== EDIT OBJECT MODAL ====================== #}
+<div class="modal fade" id="editObjModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-pen me-2" style="color:#3b82f6"></i>Edit Object
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="eo_ext_id">
+                <input type="hidden" id="eo_device_id">
+                <input type="hidden" id="eo_subtype">
+
+                <div class="mb-3">
+                    <label class="form-label-sm">Name <span style="color:#ef4444">*</span></label>
+                    <input type="text" id="eo_name" class="form-control" placeholder="Object name">
+                </div>
+
+                {# ---- net_ip ---- #}
+                <div id="eo_fields_net_ip" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-network-wired me-1"></i>IP Address / Subnet</div>
+                    <div class="mb-3">
+                        <label class="form-label-sm">Address (host or CIDR)</label>
+                        <input type="text" id="eo_ip_value" class="form-control" style="font-family:monospace">
+                    </div>
+                </div>
+
+                {# ---- net_range ---- #}
+                <div id="eo_fields_net_range" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-arrows-left-right me-1"></i>IP Range</div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label-sm">Start IP</label>
+                            <input type="text" id="eo_range_start" class="form-control" style="font-family:monospace">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label-sm">End IP</label>
+                            <input type="text" id="eo_range_end" class="form-control" style="font-family:monospace">
+                        </div>
+                    </div>
+                </div>
+
+                {# ---- net_fqdn ---- #}
+                <div id="eo_fields_net_fqdn" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-globe me-1"></i>FQDN</div>
+                    <div class="mb-3">
+                        <label class="form-label-sm">Domain Name</label>
+                        <input type="text" id="eo_fqdn" class="form-control" style="font-family:monospace">
+                    </div>
+                </div>
+
+                {# ---- net_group ---- #}
+                <div id="eo_fields_net_group" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-layer-group me-1"></i>Network Group Members</div>
+                    <div id="eo_picker_net_group"></div>
+                </div>
+
+                {# ---- service ---- #}
+                <div id="eo_fields_service" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-gear me-1"></i>Service</div>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label-sm">Protocol</label>
+                            <select id="eo_protocol" class="form-select" style="font-size:12px">
+                                <option value="6">TCP (6)</option>
+                                <option value="17">UDP (17)</option>
+                                <option value="1">ICMP (1)</option>
+                                <option value="47">GRE (47)</option>
+                                <option value="50">ESP (50)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label-sm">Dst Port (start)</label>
+                            <input type="number" id="eo_port_start" class="form-control" min="1" max="65535" style="font-size:12px;font-family:monospace">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label-sm">Dst Port (end)</label>
+                            <input type="number" id="eo_port_end" class="form-control" min="1" max="65535" style="font-size:12px;font-family:monospace">
+                        </div>
+                    </div>
+                </div>
+
+                {# ---- service_group ---- #}
+                <div id="eo_fields_service_group" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-layer-group me-1"></i>Service Group Members</div>
+                    <div id="eo_picker_service_group"></div>
+                </div>
+
+                {# ---- zone ---- #}
+                <div id="eo_fields_zone" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-map-location-dot me-1"></i>Zone</div>
+                    <p style="font-size:12px;color:#64748b;margin-bottom:0">Rename the zone — only the name will be updated on the device.</p>
+                </div>
+
+                {# ---- urlcat ---- #}
+                <div id="eo_fields_urlcat" class="eo-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-link me-1"></i>URL Patterns</div>
+                    <div style="font-size:11px;color:#64748b;margin-bottom:6px">One URL pattern per line, e.g. <code>*.example.com</code> or <code>http://bad.site</code></div>
+                    <textarea id="eo_urls" class="form-control" rows="8" style="font-family:monospace;font-size:12px" placeholder="*.example.com&#10;http://another.com"></textarea>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <div id="eo_loading" style="display:none;align-items:center">
+                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                    <span style="font-size:12px">Saving…</span>
+                </div>
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary fw-bold" id="eo_submit_btn" onclick="submitEdit()">
+                    <i class="fas fa-save me-1"></i>Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 {# ====================== EDIT OBJECT MODAL ====================== #}
 <div class="modal fade" id="editObjModal" tabindex="-1">
@@ -410,6 +525,13 @@
                     <p style="font-size:12px;color:#64748b">Just provide a name — the zone will be created on the device.</p>
                 </div>
 
+                {# ---- urlcat ---- #}
+                <div id="co_fields_urlcat" class="co-fields" style="display:none">
+                    <div class="rule-form-section"><i class="fas fa-link me-1"></i>URL Patterns</div>
+                    <div style="font-size:11px;color:#64748b;margin-bottom:6px">One URL pattern per line, e.g. <code>*.example.com</code> or <code>http://bad.site</code></div>
+                    <textarea id="co_urls" class="form-control" rows="8" style="font-family:monospace;font-size:12px" placeholder="*.example.com&#10;http://another.com"></textarea>
+                </div>
+
             </div>
             <div class="modal-footer">
                 <div id="co_loading" style="display:none;align-items:center">
@@ -426,6 +548,55 @@
 </div>
 
 <div class="toast-stack" id="toastStack2"></div>
+
+{# ====================== FIND & REPLACE MODAL ====================== #}
+<div class="modal fade" id="replaceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-right-left me-2" style="color:#f59e0b"></i>Replace in Rules
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="rr_old_ext_id">
+
+                {# Source object (read-only) #}
+                <div class="mb-3">
+                    <label class="form-label-sm" style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Replace this object</label>
+                    <div id="rr_source_display"
+                         style="padding:8px 12px;background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:7px;font-size:13px;font-weight:600;color:#fbbf24"></div>
+                </div>
+
+                {# Usage preview #}
+                <div id="rr_usage_row" class="mb-3">
+                    <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Used in rules</div>
+                    <div id="rr_usage_list" style="font-size:12px;color:#64748b;font-style:italic">Loading…</div>
+                </div>
+
+                <hr style="border-color:rgba(255,255,255,.08)">
+
+                {# Replacement picker #}
+                <div>
+                    <label class="form-label-sm" style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Replace with</label>
+                    <div id="rr_picker_container"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div id="rr_loading" style="display:none;align-items:center">
+                    <div class="spinner-border spinner-border-sm text-warning me-2"></div>
+                    <span style="font-size:12px;color:#94a3b8">Replacing…</span>
+                </div>
+                <div id="rr_result" style="display:none;font-size:12px;color:#22c55e"></div>
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning fw-bold" id="rr_confirm_btn" onclick="submitReplace()" disabled>
+                    <i class="fas fa-right-left me-1"></i>Replace in Rules
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -583,6 +754,9 @@ const SUBTYPE_CONFIGS = {
     zone: [
         { id: 'zone', label: 'Zone', icon: 'fa-map-location-dot' },
     ],
+    urlcat: [
+        { id: 'urlcat', label: 'URL Category', icon: 'fa-link' },
+    ],
 };
 
 let _coPickerNetGroup = null;
@@ -705,6 +879,9 @@ async function submitCreate() {
     } else if (subtype === 'service_group') {
         payload.member_ids = _coPickerSvcGroup ? _coPickerSvcGroup.getSelectedIds() : [];
         if (!payload.member_ids.length) { showToast('Add at least one service', 'warning'); return; }
+    } else if (subtype === 'urlcat') {
+        const raw = document.getElementById('co_urls').value;
+        payload.urls = raw.split('\n').map(u => u.trim()).filter(u => u.length > 0);
     }
 
     document.getElementById('co_loading').style.display = 'flex';

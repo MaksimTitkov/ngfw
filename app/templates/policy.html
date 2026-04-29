@@ -4,73 +4,7 @@
 {% block body %}
 <div class="app-layout">
 
-    {# ===== SIDEBAR ===== #}
-    <aside class="app-sidebar">
-        <div class="sidebar-brand">
-            <div style="width:32px;height:32px;background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:10px;flex-shrink:0">
-                <i class="fas fa-shield-halved" style="color:#fff;font-size:15px"></i>
-            </div>
-            <div>
-                <div class="sidebar-brand-text">NGFW Manager</div>
-                <span class="sidebar-brand-sub">Policy Rules</span>
-            </div>
-        </div>
-
-        {# Nav tabs #}
-        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.06)">
-            <a href="/" style="flex:1;min-width:44px;text-align:center;padding:5px 4px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8"
-               onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-                <i class="fas fa-layer-group me-1" style="font-size:10px"></i>SEC
-            </a>
-            <a href="/nat" style="flex:1;min-width:44px;text-align:center;padding:5px 4px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8"
-               onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-                <i class="fas fa-arrows-left-right me-1" style="font-size:10px"></i>NAT
-            </a>
-            <a href="/objects" style="flex:1;min-width:44px;text-align:center;padding:5px 4px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8"
-               onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-                <i class="fas fa-cubes me-1" style="font-size:10px"></i>OBJ
-            </a>
-            <a href="/logs" style="flex:1;min-width:44px;text-align:center;padding:5px 4px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8"
-               onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-                <i class="fas fa-list-alt me-1" style="font-size:10px"></i>LOG
-            </a>
-            <a href="/policy" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(59,130,246,.25);color:#60a5fa">
-                <i class="fas fa-shield-virus" style="font-size:10px;display:block;margin-bottom:1px"></i>POL
-            </a>
-            <a href="/system" style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.06);color:#94a3b8"
-               onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-                <i class="fas fa-server" style="font-size:10px;display:block;margin-bottom:1px"></i>SYS
-            </a>
-        </div>
-
-        {# Device list #}
-        <div class="sidebar-scroll">
-            <div class="sidebar-section-label">Device</div>
-            {% for dev in devices %}
-            <a href="/policy?device_id={{ dev.device_id }}&tab={{ active_tab }}"
-               class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
-                <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0"></i>
-                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
-            </a>
-            {% else %}
-            <div style="padding:16px;font-size:12px;color:#475569;text-align:center">No devices synced</div>
-            {% endfor %}
-        </div>
-
-        <div class="sidebar-footer">
-            <div style="width:30px;height:30px;background:#1e293b;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                <i class="fas fa-user" style="color:#64748b;font-size:12px"></i>
-            </div>
-            <div class="sidebar-user">
-                <div class="sidebar-user-name">{{ user.username }}</div>
-                <div class="sidebar-user-host">{{ user.host }}</div>
-            </div>
-            <a href="/logout" title="Logout" style="color:#475569;text-decoration:none;padding:4px 6px;border-radius:6px;transition:.15s"
-               onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#475569'">
-                <i class="fas fa-power-off"></i>
-            </a>
-        </div>
-    </aside>
+    {% include "components/sidebar.html" %}
 
     {# ===== MAIN ===== #}
     <div class="app-main">
@@ -81,6 +15,17 @@
                 <i class="fas fa-shield-virus" style="color:#3b82f6;margin-right:6px"></i>
                 Policy Rules
             </span>
+            <div class="topbar-sep"></div>
+
+            {# Device selector #}
+            <select id="deviceSel" onchange="switchDevice(this.value)"
+                    style="padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
+                           background:#1e293b;color:#e2e8f0;font-size:12px;outline:none;min-width:160px">
+                {% for d in devices %}
+                <option value="{{ d.device_id }}" {{ 'selected' if d.device_id == selected_device_id else '' }}>{{ d.name }}</option>
+                {% endfor %}
+            </select>
+
             <div class="topbar-sep"></div>
 
             {# Rule type tabs #}
@@ -152,6 +97,127 @@
     </div>{# /app-main #}
 </div>{# /app-layout #}
 
+<div id="policyLoader" style="display:none">
+    <div class="spinner-border text-light"></div>
+    <div class="loader-msg" id="policyLoaderMsg">Please wait…</div>
+</div>
+<div class="toast-stack" id="toastStack"></div>
+<div id="confirmOverlay" style="display:none">
+    <div id="confirmBox">
+        <div id="confirmTitle" style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px"></div>
+        <div id="confirmMsg"   style="font-size:13px;color:#94a3b8;margin-bottom:20px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button id="confirmCancelBtn" style="padding:6px 16px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#94a3b8;font-size:13px;cursor:pointer">Cancel</button>
+            <button id="confirmOkBtn"     style="padding:6px 16px;border-radius:6px;border:none;font-size:13px;font-weight:700;cursor:pointer">Confirm</button>
+        </div>
+    </div>
+</div>
+
+{# ===== EDIT MODAL ===== #}
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+            <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:16px 20px">
+                <h5 class="modal-title" style="font-weight:700;font-size:15px">Edit Rule</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+                <input type="hidden" id="eId">
+
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <label class="form-label fw-semibold" style="font-size:12px">Rule Name *</label>
+                        <input type="text" id="eName" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Source Zone</label>
+                        <select id="eSrcZone" class="form-select form-select-sm" multiple style="height:90px">
+                            {% for z in zone_objects %}<option value="{{ z.id }}">{{ z.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination Zone</label>
+                        <select id="eDstZone" class="form-select form-select-sm" multiple style="height:90px">
+                            {% for z in zone_objects %}<option value="{{ z.id }}">{{ z.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Source Address</label>
+                        <div id="epkSrcAddrWrap"></div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination Address</label>
+                        <div id="epkDstAddrWrap"></div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Service</label>
+                        <div id="epkSvcWrap"></div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Action</label>
+                        <select id="eAction" class="form-select form-select-sm"></select>
+                    </div>
+                </div>
+                <div id="eExtraDecrypt" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">SSL Profile</label>
+                            <input type="text" id="eSslProfile" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Certificate Profile</label>
+                            <input type="text" id="eCertProfile" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div id="eExtraAuth" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Authentication Profile</label>
+                            <input type="text" id="eAuthProfile" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Timeout (sec)</label>
+                            <input type="number" id="eAuthTimeout" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div id="eExtraPBR" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Nexthop IP</label>
+                            <input type="text" id="eNexthop" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Nexthop Interface</label>
+                            <input type="text" id="eNexthopIf" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Priority</label>
+                            <input type="number" id="ePriority" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="eEnabled">
+                    <label class="form-check-label" style="font-size:12px;font-weight:600" for="eEnabled">Enabled</label>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #f1f5f9;padding:12px 20px">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitEdit()" style="font-weight:600">
+                    <i class="fas fa-save me-1"></i>Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 {# ===== CREATE MODAL ===== #}
 <div class="modal fade" id="createModal" tabindex="-1">
@@ -292,17 +358,58 @@
 .action-forward   { background:#ede9fe;color:#5b21b6; }
 .action-drop      { background:#fee2e2;color:#991b1b; }
 .enabled-badge    { display:inline-block;width:8px;height:8px;border-radius:50%; }
+
+.tag-pill {
+    display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500;
+    background:rgba(59,130,246,.1);color:#60a5fa;margin:1px 2px;white-space:nowrap;
+}
+.rule-row:hover td { background:rgba(255,255,255,.02); }
+.rule-selected td  { background:rgba(59,130,246,.07) !important; }
+.rule-row td       { padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px; }
+.rule-row td:first-child { padding-left:12px; }
+
+/* Loading overlay */
+#policyLoader {
+    position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.6);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+}
+#policyLoader .loader-msg { color:#e2e8f0;font-size:14px;font-weight:600; }
+
+/* Toast */
+.toast-stack { position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px; }
+.toast-item  { padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;
+               box-shadow:0 4px 12px rgba(0,0,0,.3);animation:fadeInUp .2s ease; }
+.toast-success { background:#166534;color:#dcfce7; }
+.toast-error   { background:#991b1b;color:#fee2e2; }
+.toast-warning { background:#92400e;color:#fef3c7; }
+.toast-info    { background:#1e40af;color:#dbeafe; }
+@keyframes fadeInUp { from { opacity:0;transform:translateY(10px); } to { opacity:1;transform:none; } }
+
+/* Confirm dialog */
+#confirmOverlay {
+    position:fixed;inset:0;z-index:9100;background:rgba(15,23,42,.7);
+    display:flex;align-items:center;justify-content:center;
+}
+#confirmBox {
+    background:#1e293b;border-radius:12px;padding:24px 28px;max-width:400px;width:90%;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
 </style>
 
 
 <script src="/static/js/picker.js"></script>
 <script>
-const DEVICE_ID   = {{ selected_device_id | tojson }};
+let DEVICE_ID     = {{ selected_device_id | tojson }};
 const ACTIVE_TAB  = {{ active_tab | tojson }};
 const NET_OBJECTS = {{ net_objects | tojson }};
 const SVC_OBJECTS = {{ svc_objects | tojson }};
 
 let _currentTab = ACTIVE_TAB;
+
+function switchDevice(id) {
+    DEVICE_ID = id;
+    loadRules();
+}
 let _rules = [];
 let _selected = new Set();
 
@@ -474,7 +581,10 @@ function _renderTable() {
         const enabled = rule.enabled !== false && rule.enabled !== 'false';
         const checked = _selected.has(id) ? 'checked' : '';
 
-        return `<tr class="rule-row ${_selected.has(id) ? 'rule-selected' : ''}" data-id="${_esc(id)}">
+        const rowData = encodeURIComponent(JSON.stringify(rule));
+        return `<tr class="rule-row ${_selected.has(id) ? 'rule-selected' : ''}" data-id="${_esc(id)}"
+                    ondblclick="openEdit(decodeURIComponent('${rowData.replace(/'/g,'%27')}'))"
+                    style="${!enabled ? 'opacity:.5' : ''}">
             <td><input type="checkbox" class="row-cb" data-id="${_esc(id)}" onchange="toggleSelect('${_esc(id)}', this.checked)" ${checked}></td>
             <td style="color:#94a3b8;font-size:11px;font-weight:600">${i + 1}</td>
             <td style="font-weight:600;font-size:12px">${_esc(_g(rule, 'name'))}</td>
@@ -486,12 +596,16 @@ function _renderTable() {
             <td>${_actionBadge(_g(rule, 'action', 'ruleAction'))}</td>
             <td>${_extraCell(rule)}</td>
             <td>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="${enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" class="toggle-cb" data-id="${_esc(id)}" ${enabled ? 'checked' : ''}
                            onchange="toggleRule('${_esc(id)}', this.checked)" style="cursor:pointer">
                 </label>
             </td>
-            <td style="text-align:right">
+            <td style="text-align:right;white-space:nowrap">
+                <button onclick="openEdit(decodeURIComponent('${rowData.replace(/'/g,'%27')}'))" title="Edit"
+                        style="padding:3px 7px;border:none;border-radius:5px;background:rgba(59,130,246,.1);color:#60a5fa;cursor:pointer;font-size:11px;margin-right:3px">
+                    <i class="fas fa-pen"></i>
+                </button>
                 <button onclick="deleteOne('${_esc(id)}')" title="Delete"
                         style="padding:3px 7px;border:none;border-radius:5px;background:#fee2e2;color:#ef4444;cursor:pointer;font-size:11px">
                     <i class="fas fa-trash"></i>
@@ -694,9 +808,171 @@ async function submitCreate() {
     }
 }
 
+// ---- Edit ----
+let _editModal = null;
+let epkSrcAddr, epkDstAddr, epkSvc;
+
+function _initEditPickers() {
+    const ws = document.getElementById('epkSrcAddrWrap');
+    if (ws._pickerInited) return;
+    epkSrcAddr = new ObjectPicker(ws, { items: NET_OBJECTS, placeholder: 'Source address…' });
+    epkDstAddr = new ObjectPicker(document.getElementById('epkDstAddrWrap'), { items: NET_OBJECTS, placeholder: 'Destination address…' });
+    epkSvc     = new ObjectPicker(document.getElementById('epkSvcWrap'), { items: SVC_OBJECTS, placeholder: 'Service…', tagClass: 'svc-t' });
+    ws._pickerInited = true;
+}
+
+function openEdit(jsonStr) {
+    let rule;
+    try { rule = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr; } catch { showToast('Cannot parse rule', 'error'); return; }
+
+    _initEditPickers();
+    const cfg = TAB_CONFIG[_currentTab];
+    const id  = _g(rule, 'id', 'uuid');
+
+    document.getElementById('eId').value      = id;
+    document.getElementById('eName').value    = _g(rule, 'name') === '—' ? '' : _g(rule, 'name');
+    document.getElementById('eEnabled').checked = rule.enabled !== false;
+
+    // Action options
+    const eSel = document.getElementById('eAction');
+    eSel.innerHTML = cfg.actions.map(a => `<option value="${a.value}">${a.label}</option>`).join('');
+    const curAction = String(_g(rule, 'action', 'ruleAction')).toUpperCase();
+    eSel.value = curAction !== '—' ? curAction : cfg.actions[0].value;
+
+    // Extra fields
+    ['eExtraDecrypt','eExtraAuth','eExtraPBR'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById(cfg.extraFields.replace('extra','eExtra')).style.display = '';
+
+    if (_currentTab === 'decryption') {
+        document.getElementById('eSslProfile').value  = _g(rule, 'sslProfile', 'ssl_profile') === '—' ? '' : _g(rule, 'sslProfile', 'ssl_profile');
+        document.getElementById('eCertProfile').value = _g(rule, 'certificateProfile', 'certProfile') === '—' ? '' : _g(rule, 'certificateProfile', 'certProfile');
+    } else if (_currentTab === 'auth') {
+        document.getElementById('eAuthProfile').value  = _g(rule, 'authProfile', 'authenticationProfile') === '—' ? '' : _g(rule, 'authProfile', 'authenticationProfile');
+        document.getElementById('eAuthTimeout').value  = _g(rule, 'timeout') === '—' ? '' : _g(rule, 'timeout');
+    } else if (_currentTab === 'pbr') {
+        document.getElementById('eNexthop').value   = _g(rule, 'nexthop', 'nextHop') === '—' ? '' : _g(rule, 'nexthop', 'nextHop');
+        document.getElementById('eNexthopIf').value = _g(rule, 'nexthopInterface', 'interface') === '—' ? '' : _g(rule, 'nexthopInterface', 'interface');
+        document.getElementById('ePriority').value  = _g(rule, 'priority') === '—' ? '' : _g(rule, 'priority');
+    }
+
+    // Zone selectors
+    const toIds = v => Array.isArray(v) ? v.map(x => typeof x === 'object' ? (x.id || x) : x) : [];
+    const selZones = (selId, ids) => {
+        Array.from(document.getElementById(selId).options).forEach(o => { o.selected = ids.includes(o.value); });
+    };
+    selZones('eSrcZone', toIds(_g(rule, 'sourceZone', 'srcZone')));
+    selZones('eDstZone', toIds(_g(rule, 'destinationZone', 'dstZone')));
+
+    // Address/service pickers
+    const toObjIds = v => {
+        if (!v || v === '—') return [];
+        if (Array.isArray(v)) return v.map(x => typeof x === 'object' ? (x.id || x) : x);
+        return [];
+    };
+    const netItems = NET_OBJECTS.filter(o => toObjIds(_g(rule, 'sourceAddress','srcAddress','source','sourceAddresses')).includes(o.id));
+    epkSrcAddr.clear(); netItems.forEach(i => epkSrcAddr._selectItem && epkSrcAddr._selectItem(i));
+    const dstItems = NET_OBJECTS.filter(o => toObjIds(_g(rule, 'destinationAddress','dstAddress','destination','destinationAddresses')).includes(o.id));
+    epkDstAddr.clear(); dstItems.forEach(i => epkDstAddr._selectItem && epkDstAddr._selectItem(i));
+    const svcItems = SVC_OBJECTS.filter(o => toObjIds(_g(rule, 'service','services')).includes(o.id));
+    epkSvc.clear(); svcItems.forEach(i => epkSvc._selectItem && epkSvc._selectItem(i));
+
+    _editModal ||= new bootstrap.Modal(document.getElementById('editModal'));
+    _editModal.show();
+}
+
+async function submitEdit() {
+    const name = document.getElementById('eName').value.trim();
+    if (!name) { showToast('Name is required', 'warning'); return; }
+    const id      = document.getElementById('eId').value;
+    const action  = document.getElementById('eAction').value;
+    const enabled = document.getElementById('eEnabled').checked;
+    const srcZones = Array.from(document.getElementById('eSrcZone').selectedOptions).map(o => o.value);
+    const dstZones = Array.from(document.getElementById('eDstZone').selectedOptions).map(o => o.value);
+
+    let payload = {
+        id, name, deviceGroupId: DEVICE_ID, enabled, action,
+        sourceZone: srcZones, destinationZone: dstZones,
+        sourceAddress:      epkSrcAddr.getSelectedIds(),
+        destinationAddress: epkDstAddr.getSelectedIds(),
+        service:            epkSvc.getSelectedIds(),
+    };
+    if (_currentTab === 'decryption') {
+        const v1 = document.getElementById('eSslProfile').value.trim();
+        const v2 = document.getElementById('eCertProfile').value.trim();
+        if (v1) payload.sslProfile = v1;
+        if (v2) payload.certificateProfile = v2;
+    } else if (_currentTab === 'auth') {
+        const v1 = document.getElementById('eAuthProfile').value.trim();
+        const v2 = document.getElementById('eAuthTimeout').value;
+        if (v1) payload.authProfile = v1;
+        if (v2) payload.timeout = parseInt(v2);
+    } else if (_currentTab === 'pbr') {
+        const v1 = document.getElementById('eNexthop').value.trim();
+        const v2 = document.getElementById('eNexthopIf').value.trim();
+        const v3 = document.getElementById('ePriority').value;
+        if (v1) payload.nexthop = v1;
+        if (v2) payload.nexthopInterface = v2;
+        if (v3) payload.priority = parseInt(v3);
+    }
+
+    showLoading('Saving…');
+    try {
+        const r = await fetch('/api/v1/policy/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_group_id: DEVICE_ID, tab: _currentTab, payload }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            _editModal.hide();
+            showToast('Rule updated', 'success');
+            await loadRules();
+        } else {
+            showToast(data.message || 'Update failed', 'error');
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
 // ---- Utils ----
 function _esc(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, type='info') {
+    const stack = document.getElementById('toastStack');
+    const el = document.createElement('div');
+    el.className = `toast-item toast-${type}`;
+    el.textContent = msg;
+    stack.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+
+function showLoading(msg='Please wait…') {
+    document.getElementById('policyLoaderMsg').textContent = msg;
+    document.getElementById('policyLoader').style.display = 'flex';
+}
+function hideLoading() {
+    document.getElementById('policyLoader').style.display = 'none';
+}
+
+function confirmDialog(title, msg, btnLabel='Confirm', danger=true) {
+    return new Promise(resolve => {
+        document.getElementById('confirmTitle').textContent = title;
+        document.getElementById('confirmMsg').textContent   = msg;
+        const ok = document.getElementById('confirmOkBtn');
+        ok.textContent = btnLabel;
+        ok.style.background = danger ? '#ef4444' : '#3b82f6';
+        ok.style.color = '#fff';
+        const overlay = document.getElementById('confirmOverlay');
+        overlay.style.display = 'flex';
+        const done = (v) => { overlay.style.display = 'none'; resolve(v); };
+        ok.onclick = () => done(true);
+        document.getElementById('confirmCancelBtn').onclick = () => done(false);
+    });
 }
 
 // ---- Init ----

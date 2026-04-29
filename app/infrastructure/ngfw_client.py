@@ -189,13 +189,22 @@ class NGFWClient:
         return []
 
     async def get_ips_profiles(self, device_group_id: str = None) -> List[Dict[str, Any]]:
-        return await self._post_list("ListIPSProfiles", device_group_id)
+        result = await self._post_list("ListIPSProfiles", device_group_id)
+        if not result and device_group_id:
+            result = await self._post_list("ListIPSProfiles", None)
+        return result
 
     async def get_av_profiles(self, device_group_id: str = None) -> List[Dict[str, Any]]:
-        return await self._post_list("ListAntivirusProfiles", device_group_id)
+        result = await self._post_list("ListAntivirusProfiles", device_group_id)
+        if not result and device_group_id:
+            result = await self._post_list("ListAntivirusProfiles", None)
+        return result
 
     async def get_icap_profiles(self, device_group_id: str = None) -> List[Dict[str, Any]]:
-        return await self._post_list("ListICAPProfiles", device_group_id)
+        result = await self._post_list("ListICAPProfiles", device_group_id)
+        if not result and device_group_id:
+            result = await self._post_list("ListICAPProfiles", None)
+        return result
 
     async def get_objects(self, object_type: str, device_group_id: str = None) -> List[Dict[str, Any]]:
         mapping = {
@@ -603,6 +612,7 @@ class NGFWClient:
         'Service Group': 'DeleteServiceGroup',
         'Security Zone': 'DeleteZone',
         'Zone':          'DeleteZone',
+        'URL Category':  'DeleteURLCategory',
     }
 
     async def delete_object(self, obj_type: str, obj_id: str) -> bool:
@@ -618,6 +628,14 @@ class NGFWClient:
         except Exception as e:
             logger.error(f"Delete {endpoint} {obj_id} failed: {e}")
             return False
+
+    async def create_url_category(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        url = f"{self.base_url}/api/v2/CreateURLCategory"
+        resp = await self.client.post(url, json=payload)
+        if resp.status_code == 200:
+            return resp.json()
+        logger.error(f"CreateURLCategory failed: {resp.status_code} {resp.text[:500]}")
+        resp.raise_for_status()
 
     async def create_zone(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/api/v2/CreateZone"

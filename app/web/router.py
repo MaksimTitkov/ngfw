@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends, Query, Form, Body
+from fastapi import APIRouter, Request, Depends, Query, Form, Body, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete as sa_delete, cast, Text, or_
@@ -140,6 +140,19 @@ def format_obj_details(obj: CachedObject) -> str:
         res = " | ".join(parts) if parts else "-"
         return res + mem_badge
         
+    elif cat == 'urlcat':
+        raw = d.get('_raw_debug') or d
+        urls = raw.get('urls') or d.get('urls') or []
+        if not isinstance(urls, list):
+            urls = []
+        count = len(urls)
+        if count == 0:
+            return "<span style='color:#475569;font-style:italic'>No URLs defined</span>"
+        preview = ", ".join(str(u) for u in urls[:3])
+        if count > 3:
+            preview += f" <span style='color:#475569'>+{count-3} more</span>"
+        return f"<span style='font-family:monospace;font-size:11px'>{preview}</span>"
+
     else:
         return str(d.get('value') or d.get('name') or "-")
 
@@ -314,20 +327,28 @@ async def commit_changes(request: Request, device_id: str = Form(...), db: Async
 
 # Р­РќР”РџРћРРќРў Р”Р›РЇ РџР•Р Р•РўРђРЎРљРР’РђРќРРЇ (РСЃРїСЂР°РІР»СЏРµС‚ 404 РїСЂРё Drag&Drop)
 @router.post("/api/v1/rules/reorder")
-async def reorder_rules(data: ReorderRequest, db: AsyncSession = Depends(get_db)):
-    # 1. РџРѕР»СѓС‡Р°РµРј РІСЃРµ РїСЂР°РІРёР»Р°, РєРѕС‚РѕСЂС‹Рµ РїСЂРёСЃР»Р°Р» С„СЂРѕРЅС‚РµРЅРґ
+async def reorder_rules(request: Request, data: ReorderRequest, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
     stmt = select(CachedRule).where(CachedRule.id.in_(data.rule_ids))
     rules = (await db.execute(stmt)).scalars().all()
-    
     rule_map = {r.id: r for r in rules}
-    
-    # 2. РћР±РЅРѕРІР»СЏРµРј РїРѕСЂСЏРґРѕРє
+
     for index, r_id in enumerate(data.rule_ids):
         if r_id in rule_map:
             rule = rule_map[r_id]
-            rule.folder_id = data.folder_id # Р•СЃР»Рё РїРµСЂРµРЅРµСЃР»Рё РІ РґСЂСѓРіСѓСЋ РїР°РїРєСѓ
-            rule.folder_sort_order = index  # РќРѕРІС‹Р№ РїРѕСЂСЏРґРєРѕРІС‹Р№ РЅРѕРјРµСЂ
-    
+            rule.folder_id = data.folder_id
+            rule.folder_sort_order = index
+
+    # Log a single reorder entry for the folder
+    folder = (await db.execute(select(Folder).where(Folder.id == data.folder_id))).scalar_one_or_none()
+    folder_name = folder.name if folder else data.folder_id
+    dg = folder.device_group_id if folder else ""
+    await _log_change(db, user, "reorder", "rule", folder_name, data.folder_id, dg,
+                      f"Reordered {len(data.rule_ids)} rules")
+
     await db.commit()
     return JSONResponse({"status": "ok"})
 
@@ -756,6 +777,19 @@ async def delete_rules(request: Request, data: DeleteRequest, db: AsyncSession =
 
 # --- OTHER ROUTES ---
 
+@router.get("/find-rule", response_class=HTMLResponse)
+async def find_rule(request: Request, rule_name: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Redirect from logs to the correct folder for a rule by name."""
+    if not get_current_user(request):
+        return RedirectResponse("/login")
+    if not rule_name:
+        return RedirectResponse("/")
+    stmt = select(CachedRule).where(CachedRule.name == rule_name).limit(1)
+    rule = (await db.execute(stmt)).scalar_one_or_none()
+    if rule and rule.folder_id:
+        return RedirectResponse(f"/?folder_id={rule.folder_id}&highlight_rule={quote(rule_name)}")
+    return RedirectResponse(f"/?rule_name={quote(rule_name)}")
+
 @router.post("/create_folder")
 async def create_folder(request: Request, folder_name: str = Form(...), device_id: str = Form(...), section: str = Form(...), db: AsyncSession = Depends(get_db)):
     if not get_current_user(request): return RedirectResponse("/login", status_code=303)
@@ -829,7 +863,8 @@ async def index(request: Request, folder_id: str = Query(None), db: AsyncSession
 
 @router.get("/objects", response_class=HTMLResponse)
 async def list_objects(request: Request, device_id: str = Query(None), page: int = Query(1), type_filter: str = Query('net'), db: AsyncSession = Depends(get_db)):
-    if not get_current_user(request): return RedirectResponse(url="/login")
+    user = get_current_user(request)
+    if not user: return RedirectResponse(url="/login")
     
     PAGE_SIZE = 150
     meta_res = await db.execute(select(DeviceMeta).order_by(DeviceMeta.name))
@@ -878,7 +913,7 @@ async def list_objects(request: Request, device_id: str = Query(None), page: int
 
 class ObjectCreateRequest(BaseModel):
     device_group_id: str
-    obj_type: str        # net_ip | net_range | net_fqdn | net_group | service | service_group | zone
+    obj_type: str        # net_ip | net_range | net_fqdn | net_group | service | service_group | zone | urlcat
     name: str
     ip_value: str = ""   # "192.168.1.0/24"
     range_start: str = ""
@@ -888,6 +923,7 @@ class ObjectCreateRequest(BaseModel):
     dst_port_start: int = 0
     dst_port_end: int = 0
     member_ids: List[str] = []
+    urls: List[str] = []  # URL Category entries
 
 
 class ObjectDeleteRequest(BaseModel):
@@ -962,6 +998,11 @@ async def create_object_endpoint(request: Request, data: ObjectCreateRequest, db
         elif data.obj_type == 'zone':
             res = await client.create_zone({"name": name, "deviceGroupId": dg_id})
             type_lbl, cat = "Security Zone", "zone"
+
+        elif data.obj_type == 'urlcat':
+            urls = [u.strip() for u in data.urls if u.strip()]
+            res = await client.create_url_category({"name": name, "deviceGroupId": dg_id, "urls": urls})
+            type_lbl, cat = "URL Category", "urlcat"
 
         else:
             return JSONResponse({"status": "error", "message": f"Unknown obj_type: {data.obj_type}"}, status_code=400)
@@ -1084,6 +1125,160 @@ async def delete_objects_endpoint(request: Request, data: ObjectDeleteRequest, d
         return JSONResponse({"status": "ok", "deleted": len(objects)})
     except Exception as e:
         logger.error(f"Object deletion failed: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
+# ===========================================================================
+#  OBJECT FIND & REPLACE — Phase 7.7
+# ===========================================================================
+
+class ReplaceInRulesRequest(BaseModel):
+    old_ext_id: str
+    new_ext_id: str
+    device_group_id: str
+
+
+def _ids_from_field(field: dict) -> List[str]:
+    """Extract UUID list from a rule field in any NGFW API format."""
+    if not field:
+        return []
+    kind = field.get("kind", "")
+    if "ANY" in kind:
+        return []
+    objects = field.get("objects", [])
+    if isinstance(objects, dict):
+        return [str(x) for x in objects.get("array", [])]
+    ids: List[str] = []
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        if "id" in obj:
+            ids.append(obj["id"])
+        else:
+            for v in obj.values():
+                if isinstance(v, dict) and "id" in v:
+                    ids.append(v["id"])
+                    break
+    return ids
+
+
+def _field_with_ids(field: dict, ids: List[str], any_kind: str, list_kind: str) -> dict:
+    """Rebuild a field in simplified array format."""
+    if not ids:
+        orig_kind = (field or {}).get("kind", any_kind)
+        return {"kind": orig_kind if "ANY" in orig_kind else any_kind, "objects": {"array": []}}
+    return {"kind": list_kind, "objects": {"array": ids}}
+
+
+@router.post("/api/v1/objects/replace-in-rules")
+async def replace_object_in_rules(
+    request: Request, data: ReplaceInRulesRequest, db: AsyncSession = Depends(get_db)
+):
+    """Replace old_ext_id with new_ext_id in all SEC rules of a device group."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    folders_stmt = select(Folder).where(Folder.device_group_id == data.device_group_id)
+    folder_ids = [f.id for f in (await db.execute(folders_stmt)).scalars().all()]
+    if not folder_ids:
+        return JSONResponse({"status": "ok", "updated": 0, "failed": 0})
+
+    rules = (await db.execute(
+        select(CachedRule).where(CachedRule.folder_id.in_(folder_ids))
+    )).scalars().all()
+
+    # field_name → (any_kind, list_kind)
+    FIELDS = {
+        "sourceAddr":      ("RULE_KIND_ANY",      "RULE_KIND_LIST"),
+        "destinationAddr": ("RULE_KIND_ANY",       "RULE_KIND_LIST"),
+        "service":         ("RULE_KIND_ANY",       "RULE_KIND_LIST"),
+        "application":     ("RULE_KIND_ANY",       "RULE_KIND_LIST"),
+        "urlCategory":     ("RULE_KIND_ANY",       "RULE_KIND_LIST"),
+        "sourceZone":      ("RULE_KIND_ANY",       "RULE_KIND_LIST"),
+        "destinationZone": ("RULE_KIND_ANY",       "RULE_KIND_LIST"),
+        "sourceUser":      ("RULE_USER_KIND_ANY",  "RULE_USER_KIND_LIST"),
+    }
+
+    old_id = data.old_ext_id
+    new_id = data.new_ext_id
+
+    # Pre-filter: only rules that actually reference old_id
+    affected = []
+    for rule in rules:
+        d = rule.data or {}
+        for fname in FIELDS:
+            if old_id in _ids_from_field(d.get(fname)):
+                affected.append(rule)
+                break
+
+    if not affected:
+        return JSONResponse({"status": "ok", "updated": 0, "failed": 0})
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    try:
+        await client.login(user['username'], user['password'])
+        updated = 0
+        failed = 0
+
+        for rule in affected:
+            d = rule.data or {}
+
+            def _get_field(fname: str) -> dict:
+                f = d.get(fname, {})
+                ids = _ids_from_field(f)
+                ids = [new_id if x == old_id else x for x in ids]
+                ak, lk = FIELDS[fname]
+                return _field_with_ids(f, ids, ak, lk)
+
+            api_payload = {
+                "id":              rule.ext_id,
+                "name":            rule.name,
+                "description":     d.get("description", ""),
+                "action":          d.get("action", "SECURITY_RULE_ACTION_ALLOW"),
+                "enabled":         d.get("enabled", True),
+                "logMode":         d.get("logMode", "SECURITY_RULE_LOG_MODE_AT_RULE_HIT"),
+                "sourceZone":      _get_field("sourceZone"),
+                "destinationZone": _get_field("destinationZone"),
+                "sourceAddr":      _get_field("sourceAddr"),
+                "destinationAddr": _get_field("destinationAddr"),
+                "service":         _get_field("service"),
+                "application":     _get_field("application"),
+                "urlCategory":     _get_field("urlCategory"),
+                "sourceUser":      _get_field("sourceUser"),
+            }
+            if d.get("ipsProfile"):
+                api_payload["ipsProfileId"] = (d["ipsProfile"] or {}).get("id", "")
+            if d.get("avProfile"):
+                api_payload["avProfileId"] = (d["avProfile"] or {}).get("id", "")
+
+            try:
+                await client.update_rule(rule.ext_id, api_payload)
+                # Update local cache with simplified format for each replaced field
+                for fname in FIELDS:
+                    f = d.get(fname, {})
+                    ids = _ids_from_field(f)
+                    if old_id in ids:
+                        ak, lk = FIELDS[fname]
+                        new_ids = [new_id if x == old_id else x for x in ids]
+                        d[fname] = _field_with_ids(f, new_ids, ak, lk)
+                rule.data = d
+                await _log_change(
+                    db, user, "update", "rule", rule.name, rule.ext_id,
+                    data.device_group_id,
+                    f"Object replaced: {old_id[:8]}… → {new_id[:8]}…",
+                )
+                updated += 1
+            except Exception as e:
+                logger.error(f"Replace failed for rule '{rule.name}': {e}")
+                failed += 1
+
+        await db.commit()
+        return JSONResponse({"status": "ok", "updated": updated, "failed": failed})
+    except Exception as e:
+        logger.error(f"Replace-in-rules error: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
     finally:
         await client.close()
@@ -1961,6 +2156,74 @@ async def export_logs_csv(
     )
 
 
+@router.get("/api/v1/logs/top_stats")
+async def logs_top_stats(
+    request: Request,
+    device_group_id: str = Query(...),
+    log_type: str = Query("traffic"),
+    time_from: Optional[str] = Query(None),
+    time_to: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate top-N stats from cached logs for dashboard charts."""
+    if not get_current_user(request):
+        return JSONResponse({"status": "error"}, status_code=401)
+
+    conds = [
+        CachedLog.device_group_id == device_group_id,
+        CachedLog.log_type == log_type,
+    ]
+    if time_from:
+        try:
+            tf = datetime.fromisoformat(time_from.replace("Z", "+00:00"))
+            conds.append(CachedLog.event_time >= tf)
+        except Exception:
+            pass
+    if time_to:
+        try:
+            tt = datetime.fromisoformat(time_to.replace("Z", "+00:00"))
+            conds.append(CachedLog.event_time <= tt)
+        except Exception:
+            pass
+
+    TOP = 10
+
+    async def _top_col(col):
+        stmt = (
+            select(col, func.count().label("c"))
+            .where(*conds)
+            .where(col.isnot(None))
+            .group_by(col)
+            .order_by(func.count().desc())
+            .limit(TOP)
+        )
+        return [{"label": str(r[0]), "count": r[1]} for r in (await db.execute(stmt)).all()]
+
+    # Rule name lives in the JSON data blob
+    rule_key = "$.securityRuleName"
+    rule_expr = func.json_extract(CachedLog.data, rule_key)
+    top_rules_rows = (await db.execute(
+        select(rule_expr.label("rn"), func.count().label("c"))
+        .where(*conds)
+        .where(rule_expr.isnot(None))
+        .group_by(rule_expr)
+        .order_by(func.count().desc())
+        .limit(TOP)
+    )).all()
+
+    total = (await db.execute(select(func.count()).where(*conds))).scalar_one()
+
+    return JSONResponse({
+        "status":       "ok",
+        "total":        total,
+        "top_src_ip":   await _top_col(CachedLog.src_ip),
+        "top_dst_ip":   await _top_col(CachedLog.dst_ip),
+        "top_dst_port": await _top_col(CachedLog.dst_port),
+        "top_rules":    [{"label": str(r[0]), "count": r[1]} for r in top_rules_rows],
+        "actions":      await _top_col(CachedLog.action),
+    })
+
+
 @router.get("/api/v1/logs/rule_stats")
 async def get_rule_stats_endpoint(request: Request, device_group_id: str = Query(...)):
     user = get_current_user(request)
@@ -2094,6 +2357,38 @@ async def create_policy_rule(request: Request, data: PolicyCreateRequest, db: As
         await client.close()
 
 
+@router.post("/api/v1/policy/update")
+async def update_policy_rule(request: Request, data: PolicyCreateRequest, db: AsyncSession = Depends(get_db)):
+    """Update a policy rule (same as create but payload must contain 'id')."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+    if not data.payload.get("id"):
+        return JSONResponse({"status": "error", "message": "payload.id required"}, status_code=400)
+    client = NGFWClient(user['host'], verify_ssl=False)
+    try:
+        await client.login(user['username'], user['password'])
+        endpoint_map = {
+            "decryption": "UpdateDecryptionRule",
+            "auth":       "UpdateAuthenticationRule",
+            "pbr":        "UpdatePBRRule",
+        }
+        endpoint = endpoint_map.get(data.tab)
+        if not endpoint:
+            return JSONResponse({"status": "error", "message": f"Unknown tab: {data.tab}"}, status_code=400)
+        result = await client._create_rule_generic(endpoint, data.payload)
+        name = data.payload.get("name", "")
+        await _log_change(db, user, "update", f"policy_{data.tab}", name,
+                          data.payload["id"], data.device_group_id, f"Tab: {data.tab}")
+        await db.commit()
+        return JSONResponse({"status": "ok", "rule": result})
+    except Exception as e:
+        logger.error(f"Policy update ({data.tab}) failed: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    finally:
+        await client.close()
+
+
 @router.post("/api/v1/policy/delete")
 async def delete_policy_rules(request: Request, data: PolicyDeleteRequest, db: AsyncSession = Depends(get_db)):
     user = get_current_user(request)
@@ -2219,7 +2514,7 @@ def _sys_client_from_request(request: Request):
 async def system_page(
     request: Request,
     device_id: str = Query(None),
-    tab: str = Query("admins"),
+    tab: str = Query("backup"),
     db: AsyncSession = Depends(get_db),
 ):
     user = get_current_user(request)
@@ -2616,6 +2911,25 @@ async def run_analyzer(data: AnalyzerRequest, db: AsyncSession = Depends(get_db)
 
     result = run_analysis(rules_meta)
     return JSONResponse(result)
+
+
+@router.get("/api/v1/analyzer/cached")
+async def get_cached_analysis(db: AsyncSession = Depends(get_db)):
+    """Return the latest auto-analysis result stored after the last Sync."""
+    row = (await db.execute(
+        select(CachedAnalysis).order_by(CachedAnalysis.analyzed_at.desc()).limit(1)
+    )).scalars().first()
+
+    if not row:
+        return JSONResponse({"status": "no_data"})
+
+    return JSONResponse({
+        "status": "ok",
+        "analyzed_at": row.analyzed_at.strftime("%Y-%m-%d %H:%M UTC"),
+        "total_rules": row.total_rules,
+        "total_issues": row.total_issues,
+        **row.result,
+    })
 
 
 # ---------------------------------------------------------------------------

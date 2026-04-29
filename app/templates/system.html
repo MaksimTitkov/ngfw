@@ -4,66 +4,7 @@
 {% block body %}
 <div class="app-layout">
 
-    {# ===== SIDEBAR ===== #}
-    <aside class="app-sidebar">
-        <div class="sidebar-brand">
-            <div style="width:32px;height:32px;background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:10px;flex-shrink:0">
-                <i class="fas fa-shield-halved" style="color:#fff;font-size:15px"></i>
-            </div>
-            <div>
-                <div class="sidebar-brand-text">NGFW Manager</div>
-                <span class="sidebar-brand-sub">System</span>
-            </div>
-        </div>
-
-        {# Nav tabs #}
-        <div style="display:flex;flex-wrap:wrap;gap:3px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06)">
-            {% for href, label, icon, active in [
-                ('/', 'SEC', 'fa-layer-group', false),
-                ('/nat', 'NAT', 'fa-arrows-left-right', false),
-                ('/objects', 'OBJ', 'fa-cubes', false),
-                ('/logs', 'LOG', 'fa-list-alt', false),
-                ('/policy', 'POL', 'fa-shield-virus', false),
-                ('/system', 'SYS', 'fa-server', true)
-            ] %}
-            <a href="{{ href }}" title="{{ label }}"
-               style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
-                      background:{{ 'rgba(59,130,246,.25)' if active else 'rgba(255,255,255,.06)' }};
-                      color:{{ '#60a5fa' if active else '#94a3b8' }}"
-               {% if not active %}onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'"{% endif %}>
-                <i class="fas {{ icon }}" style="font-size:10px;display:block;margin-bottom:1px"></i>{{ label }}
-            </a>
-            {% endfor %}
-        </div>
-
-        {# Device list #}
-        <div class="sidebar-scroll">
-            <div class="sidebar-section-label">Device</div>
-            {% for dev in devices %}
-            <a href="/system?device_id={{ dev.device_id }}&tab={{ active_tab }}"
-               class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
-                <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0"></i>
-                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
-            </a>
-            {% else %}
-            <div style="padding:16px;font-size:12px;color:#475569;text-align:center">No devices synced</div>
-            {% endfor %}
-        </div>
-
-        <div class="sidebar-footer">
-            <div style="width:30px;height:30px;background:#1e293b;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                <i class="fas fa-user" style="color:#64748b;font-size:12px"></i>
-            </div>
-            <div class="sidebar-user">
-                <div class="sidebar-user-name">{{ user.username }}</div>
-                <div class="sidebar-user-host">{{ user.host }}</div>
-            </div>
-            <a href="/logout" title="Logout" style="color:#475569;text-decoration:none;padding:4px 6px;border-radius:6px;transition:.15s"
-               onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#475569'">
-                <i class="fas fa-power-off"></i>
-            </a>
-        </div>
-    </aside>
+    {% include "components/sidebar.html" %}
 
     {# ===== MAIN ===== #}
     <div class="app-main">
@@ -79,9 +20,7 @@
             {# Tabs #}
             <div style="display:flex;gap:4px">
                 {% for tid, tlbl, ticon in [
-                    ('admins','Admins','fa-users'),
                     ('backup','Backup','fa-database'),
-                    ('routing','Routing','fa-route'),
                     ('interfaces','Interfaces','fa-network-wired'),
                     ('settings','Settings','fa-sliders')
                 ] %}

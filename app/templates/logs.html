@@ -4,66 +4,7 @@
 {% block body %}
 <div class="app-layout">
 
-    {# ===== SIDEBAR ===== #}
-    <aside class="app-sidebar">
-        <div class="sidebar-brand">
-            <div style="width:32px;height:32px;background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:10px;flex-shrink:0">
-                <i class="fas fa-shield-halved" style="color:#fff;font-size:15px"></i>
-            </div>
-            <div>
-                <div class="sidebar-brand-text">NGFW Manager</div>
-                <span class="sidebar-brand-sub">Logs & Monitoring</span>
-            </div>
-        </div>
-
-        {# Nav tabs #}
-        <div style="display:flex;flex-wrap:wrap;gap:3px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06)">
-            {% for href, label, icon, active in [
-                ('/', 'SEC', 'fa-layer-group', false),
-                ('/nat', 'NAT', 'fa-arrows-left-right', false),
-                ('/objects', 'OBJ', 'fa-cubes', false),
-                ('/logs', 'LOG', 'fa-list-alt', true),
-                ('/policy', 'POL', 'fa-shield-virus', false),
-                ('/system', 'SYS', 'fa-server', false)
-            ] %}
-            <a href="{{ href }}" title="{{ label }}"
-               style="flex:1;min-width:36px;text-align:center;padding:5px 2px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
-                      background:{{ 'rgba(59,130,246,.25)' if active else 'rgba(255,255,255,.06)' }};
-                      color:{{ '#60a5fa' if active else '#94a3b8' }}"
-               {% if not active %}onmouseover="this.style.background='rgba(255,255,255,.1)'" onmouseout="this.style.background='rgba(255,255,255,.06)'"{% endif %}>
-                <i class="fas {{ icon }}" style="font-size:10px;display:block;margin-bottom:1px"></i>{{ label }}
-            </a>
-            {% endfor %}
-        </div>
-
-        {# Logs info block #}
-        <div class="sidebar-scroll">
-            <div class="sidebar-section-label">Log Source</div>
-            <div style="padding:10px 12px;font-size:11px;color:#64748b;line-height:1.5">
-                <i class="fas fa-globe" style="color:#3b82f6;margin-right:5px"></i>
-                <strong style="color:#94a3b8">Global logs</strong><br>
-                <span style="color:#475569">Logs are collected across all devices by the log collector. Use filters to narrow results.</span>
-            </div>
-            <div style="padding:4px 12px 8px">
-                <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">TTL</div>
-                <div style="font-size:11px;color:#64748b">Cache auto-purges after <strong style="color:#f59e0b">{{ log_ttl_hours }}h</strong></div>
-            </div>
-        </div>
-
-        <div class="sidebar-footer">
-            <div style="width:30px;height:30px;background:#1e293b;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                <i class="fas fa-user" style="color:#64748b;font-size:12px"></i>
-            </div>
-            <div class="sidebar-user">
-                <div class="sidebar-user-name">{{ user.username }}</div>
-                <div class="sidebar-user-host">{{ user.host }}</div>
-            </div>
-            <a href="/logout" title="Logout" style="color:#475569;text-decoration:none;padding:4px 6px;border-radius:6px;transition:.15s"
-               onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#475569'">
-                <i class="fas fa-power-off"></i>
-            </a>
-        </div>
-    </aside>
+    {% include "components/sidebar.html" %}
 
     {# ===== MAIN ===== #}
     <div class="app-main" style="display:flex;flex-direction:column;overflow:hidden">
@@ -169,6 +110,10 @@
                             style="padding:3px 10px;border-radius:6px;border:1px solid #fca5a5;background:#fff1f2;color:#991b1b;font-size:11px;font-weight:600;cursor:pointer">
                         <i class="fas fa-trash me-1"></i>Clear Cache
                     </button>
+                    <button onclick="toggleStats()" id="btnStats"
+                            style="padding:3px 10px;border-radius:6px;border:1px solid #c4b5fd;background:#f5f3ff;color:#5b21b6;font-size:11px;font-weight:600;cursor:pointer">
+                        <i class="fas fa-chart-bar me-1"></i>Stats
+                    </button>
                 </div>
             </div>
 
@@ -190,8 +135,17 @@
             </div>
         </div>
 
+        {# ---- Stats panel ---- #}
+        <div id="statsPanel" style="display:none;overflow:auto;padding:16px;background:#0f172a;border-bottom:1px solid rgba(255,255,255,.06)">
+            <div id="statsContent" style="display:flex;flex-direction:column;gap:16px">
+                <div style="text-align:center;padding:32px;color:#475569">
+                    <i class="fas fa-circle-notch fa-spin me-2"></i>Loading stats…
+                </div>
+            </div>
+        </div>
+
         {# ---- Table area ---- #}
-        <div style="flex:1;overflow:auto">
+        <div id="tablePanel" style="flex:1;overflow:auto">
             <table class="rules-table" id="logTable">
                 <thead id="logHead"><tr id="logHeaderRow"></tr></thead>
                 <tbody id="logBody">
@@ -251,6 +205,25 @@
 .sev-other    { display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;background:#f1f5f9;color:#64748b; }
 
 #rawModal[style*="none"] { display:none !important; }
+
+/* Stats panel */
+.stats-section {
+    background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 18px;
+}
+.stats-title {
+    font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;
+    display:flex;align-items:center;gap:6px;
+}
+.bar-row { display:flex;align-items:center;gap:8px;margin-bottom:5px; }
+.bar-label { font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:140px;flex-shrink:0 }
+.bar-track { flex:1;height:12px;background:rgba(255,255,255,.05);border-radius:6px;overflow:hidden }
+.bar-fill  { height:100%;border-radius:6px;transition:width .4s ease }
+.bar-count { font-size:11px;font-weight:700;color:#cbd5e1;width:42px;text-align:right;flex-shrink:0 }
+.action-chip {
+    display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;
+    font-size:12px;font-weight:700;
+}
+#btnStats.stats-active { background:#5b21b6 !important;color:#fff !important;border-color:#5b21b6 !important; }
 </style>
 
 
@@ -598,8 +571,16 @@ function _renderTable() {
             const rawVal = _g(row, ...c.f);
             const isTime = c.h === 'Time';
             const val    = isTime ? _fmtTime(rawVal) : (rawVal !== null ? rawVal : null);
+            // Rule name → clickable link to rules page
+            const isRule = c.h === 'Rule' && val;
+            const cellContent = isRule
+                ? `<a href="/find-rule?rule_name=${encodeURIComponent(String(val))}"
+                      onclick="event.stopPropagation()"
+                      style="color:#60a5fa;text-decoration:none;font-weight:500"
+                      title="Go to rule: ${_esc(String(val))}">${_esc(String(val))}</a>`
+                : (isTime ? `<span style="color:#64748b">${val || '—'}</span>` : _fmtCell(val, c.fmt));
             return `<td style="font-size:11px;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis">
-                ${isTime ? `<span style="color:#64748b">${val || '—'}</span>` : _fmtCell(val, c.fmt)}
+                ${cellContent}
             </td>`;
         }).join('');
         return `<tr class="rule-row" onclick="openRaw(${i})" style="cursor:pointer">
@@ -674,6 +655,117 @@ async function clearCache() {
     } finally {
         hideLoading();
     }
+}
+
+// ============================================================
+// STATS PANEL
+// ============================================================
+let _statsVisible = false;
+
+function toggleStats() {
+    _statsVisible = !_statsVisible;
+    const panel = document.getElementById('statsPanel');
+    const table = document.getElementById('tablePanel');
+    const btn   = document.getElementById('btnStats');
+    panel.style.display = _statsVisible ? '' : 'none';
+    table.style.flex    = _statsVisible ? '0 0 0' : '1';
+    table.style.overflow = _statsVisible ? 'hidden' : 'auto';
+    table.style.height  = _statsVisible ? '0' : '';
+    btn.classList.toggle('stats-active', _statsVisible);
+    if (_statsVisible) _loadStats();
+}
+
+async function _loadStats() {
+    const content = document.getElementById('statsContent');
+    content.innerHTML = '<div style="text-align:center;padding:32px;color:#475569"><i class="fas fa-circle-notch fa-spin me-2"></i>Loading stats…</div>';
+
+    const tf = document.getElementById('f_time_from').value;
+    const tt = document.getElementById('f_time_to').value;
+    let url = `/api/v1/logs/top_stats?device_group_id=${encodeURIComponent(DEVICE_ID)}&log_type=${encodeURIComponent(_logType)}`;
+    if (tf) url += `&time_from=${encodeURIComponent(tf)}`;
+    if (tt) url += `&time_to=${encodeURIComponent(tt)}`;
+
+    try {
+        const r = await fetch(url);
+        const d = await r.json();
+        if (d.status !== 'ok') { content.innerHTML = '<div style="color:#ef4444;padding:24px">Error loading stats.</div>'; return; }
+        _renderStats(d);
+    } catch(e) {
+        content.innerHTML = `<div style="color:#ef4444;padding:24px">Error: ${_esc(e.message)}</div>`;
+    }
+}
+
+function _renderStats(d) {
+    const content = document.getElementById('statsContent');
+    const total = d.total || 0;
+
+    const _bar = (items, color) => {
+        if (!items || !items.length) return '<div style="color:#475569;font-size:12px;font-style:italic">No data</div>';
+        const max = items[0].count || 1;
+        return items.map(it => {
+            const pct = Math.round(it.count / max * 100);
+            return `<div class="bar-row">
+                <div class="bar-label" title="${_esc(it.label)}">${_esc(it.label)}</div>
+                <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+                <div class="bar-count">${it.count.toLocaleString()}</div>
+            </div>`;
+        }).join('');
+    };
+
+    // Action chips
+    const actionColors = { allow:'rgba(34,197,94,.15)', deny:'rgba(239,68,68,.15)', drop:'rgba(245,158,11,.15)' };
+    const actionText   = { allow:'#4ade80', deny:'#f87171', drop:'#fbbf24' };
+    const actionIcons  = { allow:'fa-circle-check', deny:'fa-ban', drop:'fa-circle-xmark' };
+    const actHtml = (d.actions || []).map(a => {
+        const key = (a.label || '').toLowerCase().replace(/[^a-z]/g,'');
+        const bg  = actionColors[key]  || 'rgba(148,163,184,.1)';
+        const tc  = actionText[key]    || '#94a3b8';
+        const ic  = actionIcons[key]   || 'fa-circle';
+        return `<div class="action-chip" style="background:${bg};color:${tc}">
+            <i class="fas ${ic}"></i>${_esc(a.label)}: <strong>${a.count.toLocaleString()}</strong>
+        </div>`;
+    }).join('');
+
+    content.innerHTML = `
+        <!-- Header summary -->
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0">
+                <i class="fas fa-chart-bar me-2" style="color:#8b5cf6"></i>
+                Log Stats — <span style="color:#8b5cf6">${total.toLocaleString()}</span> entries cached
+            </div>
+            <button onclick="_loadStats()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(139,92,246,.3);background:rgba(139,92,246,.1);color:#a78bfa;font-size:11px;font-weight:600;cursor:pointer">
+                <i class="fas fa-arrows-rotate me-1"></i>Refresh
+            </button>
+        </div>
+
+        <!-- Action distribution -->
+        ${actHtml ? `<div class="stats-section">
+            <div class="stats-title"><i class="fas fa-bolt" style="color:#f59e0b"></i>Action Distribution</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">${actHtml}</div>
+        </div>` : ''}
+
+        <!-- 3-column grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+            <div class="stats-section">
+                <div class="stats-title"><i class="fas fa-arrow-up-from-bracket" style="color:#3b82f6"></i>Top Source IPs</div>
+                ${_bar(d.top_src_ip, '#3b82f6')}
+            </div>
+            <div class="stats-section">
+                <div class="stats-title"><i class="fas fa-arrow-down-to-bracket" style="color:#10b981"></i>Top Destination IPs</div>
+                ${_bar(d.top_dst_ip, '#10b981')}
+            </div>
+            <div class="stats-section">
+                <div class="stats-title"><i class="fas fa-plug" style="color:#f59e0b"></i>Top Destination Ports</div>
+                ${_bar(d.top_dst_port, '#f59e0b')}
+            </div>
+        </div>
+
+        <!-- Top rules (full width) -->
+        ${d.top_rules && d.top_rules.length ? `<div class="stats-section">
+            <div class="stats-title"><i class="fas fa-shield-halved" style="color:#a78bfa"></i>Top Rules by Hit Count</div>
+            ${_bar(d.top_rules, '#8b5cf6')}
+        </div>` : ''}
+    `;
 }
 
 // ---- Utils ----

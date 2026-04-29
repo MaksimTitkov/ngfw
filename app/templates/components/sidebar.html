@@ -60,18 +60,72 @@
         </a>
     </div>
 
+    {# ── Sub-nav ── #}
+    <div style="display:flex;gap:2px;padding:0 10px 5px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02)">
+
+        {% if active_sec == 'sec' %}
+            {% for href, label in [('/', 'Rules'), ('/nat', 'NAT'), ('/objects', 'Objects')] %}
+            <a href="{{ href }}"
+               style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
+                      {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
+                {{ label }}
+            </a>
+            {% endfor %}
+
+        {% elif active_sec == 'log' %}
+            <span style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;color:#93c5fd;border-bottom:2px solid #3b82f6">
+                Traffic &amp; Logs
+            </span>
+
+        {% elif active_sec == 'sys' %}
+            {% for href, label in [('/system', 'System'), ('/policy', 'Policy')] %}
+            <a href="{{ href }}"
+               style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
+                      {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
+                {{ label }}
+            </a>
+            {% endfor %}
+
+        {% elif active_sec == 'dash' %}
+            {% for href, label in [('/dashboard', 'Overview'), ('/analyzer', 'Analyzer'), ('/changelog', 'Changes'), ('/diff', 'Diff')] %}
+            <a href="{{ href }}"
+               style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
+                      {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
+                {{ label }}
+            </a>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    {# ── Scroll area: page-specific content ── #}
     <div class="sidebar-scroll">
 
         {% if tree %}
         <div class="sidebar-section-label">{{ t('sidebar_devices') }}</div>
 
-        {% for gid, data in tree.items() %}
-        <div class="sidebar-device">
-            <div class="sidebar-device-header {{ 'open' if gid == current_device_id else '' }}"
-                 onclick="toggleDevice(this, '{{ gid }}')">
-                <i class="fas fa-network-wired" style="color:#3b82f6;font-size:12px;flex-shrink:0"></i>
-                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ data.name }}</span>
-                <i class="fas fa-chevron-right chevron"></i>
+                    {% for section_key, badge_label in [('pre','PRE'),('default','DEFAULT'),('post','POST')] %}
+                    {% if data.sections[section_key] %}
+                    <div style="padding:{{ '4px' if loop.first else '6px' }} 0 2px 8px;{% if not loop.first %}margin-top:4px;{% endif %}">
+                        <span class="section-badge {{ section_key }}">{{ badge_label }}</span>
+                    </div>
+                    {% for f in data.sections[section_key] %}
+                    <a href="/?folder_id={{ f.id }}"
+                       class="folder-link {{ 'active' if f.id|string == selected_folder_id|string else '' }}">
+                        <i class="fas fa-folder{{ '-open' if f.id|string == selected_folder_id|string else '' }}" style="font-size:11px;flex-shrink:0"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ f.name }}">{{ f.name }}</span>
+                        <span class="folder-count">{{ f.rules_count }}</span>
+                    </a>
+                    {% endfor %}
+                    {% endif %}
+                    {% endfor %}
+
+                    <button onclick="openCreateFolder('{{ gid }}')"
+                            style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;padding:5px 10px;color:#475569;font-size:11px;cursor:pointer;border-radius:5px;margin-top:4px;transition:.15s"
+                            onmouseover="this.style.background='rgba(255,255,255,.06)'"
+                            onmouseout="this.style.background='none'">
+                        <i class="fas fa-plus" style="font-size:10px"></i> {{ t('sidebar_add_folder') }}
+                    </button>
+                </div>
             </div>
 
             <div class="sidebar-folders {{ 'open' if gid == current_device_id else '' }}" id="dev_{{ gid }}">
@@ -136,8 +190,7 @@
                 </button>
 
             </div>
-        </div>
-        {% endfor %}
+            {% endif %}
 
         {% else %}
         <div style="padding:24px 16px;text-align:center;color:#475569;font-size:12px">

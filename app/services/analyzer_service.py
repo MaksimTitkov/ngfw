@@ -1,9 +1,16 @@
 """
 Policy Analyzer — local analysis of cached security rules.
 Works entirely from the local DB cache, no NGFW API calls required.
+Auto-runs after every Sync; results persisted in cached_analysis table.
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete as sa_delete
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _is_any(field: Optional[Dict]) -> bool:
@@ -62,6 +69,9 @@ def _fields(data: Dict) -> Dict[str, Optional[Dict]]:
         "srcAddr": data.get("sourceAddr"),
         "dstAddr": data.get("destinationAddr"),
         "service": data.get("service"),
+        "app":     data.get("application"),     # L7: None/empty = ANY app
+        "urlCat":  data.get("urlCategory"),     # URL categories
+        "user":    data.get("sourceUser"),      # identity-based
     }
 
 
@@ -112,8 +122,11 @@ def find_shadowed(rules: List[Dict]) -> List[Dict]:
     Find rules that are potentially fully shadowed by an earlier rule.
     A rule B is shadowed by rule A (A < B in position) if:
     - A is enabled
-    - A covers B in every traffic dimension (srcZone, dstZone, srcAddr, dstAddr, service)
+    - A covers B in every traffic dimension: srcZone, dstZone, srcAddr, dstAddr,
+      service, application (L7), urlCategory, user
     - Same action (or A=DENY/DROP and B=ALLOW — total shadow)
+    Note: if A matches specific apps/urlCats but B has ANY, A does NOT cover B —
+    so B is NOT shadowed (it still handles traffic for other apps).
     """
     result = []
     for i, b in enumerate(rules):
@@ -157,12 +170,25 @@ def find_shadowed(rules: List[Dict]) -> List[Dict]:
     return result
 
 
+def _ids_eq(a: Optional[Set[str]], b: Optional[Set[str]]) -> bool:
+    """None means ANY; two ANYs are equal, two specifics compared by value."""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return a == b
+
+
 def find_redundant(rules: List[Dict]) -> List[Dict]:
     """
-    Adjacent rules with the same action that could potentially be merged.
-    Simplified: rules with identical action + identical srcZone + identical dstZone,
-    but different srcAddr/dstAddr (suggests they could be grouped into one).
-    We look for pairs where zones+action match and one covers the other partially.
+    Find rules that are true merge candidates:
+    same direction (srcZone, dstZone), same service/app/urlCat/action,
+    same dstAddr but different srcAddr (or same srcAddr but different dstAddr).
+
+    Explicitly excluded:
+    - Bidirectional mirrors: A.src==B.dst AND A.dst==B.src (forward + return traffic)
+    - Rules with mirrored zones: A.srcZone==B.dstZone (different traffic direction)
+    - Identical rules (same src and dst)
     """
     result = []
     seen_pairs: Set[Tuple[str, str]] = set()
@@ -172,6 +198,15 @@ def find_redundant(rules: List[Dict]) -> List[Dict]:
         if not a_data.get("enabled", True):
             continue
         a_action = _action_norm(a_data)
+        a_f = _fields(a_data)
+
+        a_sz  = _get_ids(a_f["srcZone"])
+        a_dz  = _get_ids(a_f["dstZone"])
+        a_src = _get_ids(a_f["srcAddr"])
+        a_dst = _get_ids(a_f["dstAddr"])
+        a_svc = _get_ids(a_f["service"])
+        a_app = _get_ids(a_f["app"])
+        a_url = _get_ids(a_f["urlCat"])
 
         for b in rules[i+1:i+20]:  # check next 20 only — close neighbours
             b_data = b.get("data") or {}
@@ -184,34 +219,54 @@ def find_redundant(rules: List[Dict]) -> List[Dict]:
             if pair in seen_pairs:
                 continue
 
-            # Same zones + same service → candidate for merge
-            a_f = _fields(a_data)
             b_f = _fields(b_data)
+            b_sz  = _get_ids(b_f["srcZone"])
+            b_dz  = _get_ids(b_f["dstZone"])
+            b_src = _get_ids(b_f["srcAddr"])
+            b_dst = _get_ids(b_f["dstAddr"])
+            b_svc = _get_ids(b_f["service"])
+            b_app = _get_ids(b_f["app"])
+            b_url = _get_ids(b_f["urlCat"])
 
-            sz_same = (_get_ids(a_f["srcZone"]) == _get_ids(b_f["srcZone"])
-                       or _is_any(a_f["srcZone"]) and _is_any(b_f["srcZone"]))
-            dz_same = (_get_ids(a_f["dstZone"]) == _get_ids(b_f["dstZone"])
-                       or _is_any(a_f["dstZone"]) and _is_any(b_f["dstZone"]))
-            svc_same = (_get_ids(a_f["service"]) == _get_ids(b_f["service"]))
+            # Must be same direction: same srcZone and dstZone
+            if not (_ids_eq(a_sz, b_sz) and _ids_eq(a_dz, b_dz)):
+                continue
+            # Zones are mirrored → bidirectional rules, skip
+            if _ids_eq(a_sz, b_dz) and _ids_eq(a_dz, b_sz) and not _ids_eq(a_sz, a_dz):
+                continue
 
-            if sz_same and dz_same and svc_same:
-                # Addresses differ — potential merge
-                a_src = _get_ids(a_f["srcAddr"])
-                b_src = _get_ids(b_f["srcAddr"])
-                if a_src != b_src:
-                    seen_pairs.add(pair)
-                    result.append({
-                        "rule_id": a["id"],
-                        "ext_id":  a["ext_id"],
-                        "name":    a["name"],
-                        "folder":  a.get("folder_name", ""),
-                        "device":  a.get("device_group_id", ""),
-                        "pair_id": b["id"],
-                        "pair_name": b["name"],
-                        "reason":  f"Same zones, service, action={a_action} — consider merging source addresses",
-                    })
+            # Same L4/L7 signature
+            if not (_ids_eq(a_svc, b_svc) and _ids_eq(a_app, b_app) and _ids_eq(a_url, b_url)):
+                continue
 
-    return result[:50]  # cap at 50 pairs
+            # Identical rules — not a "redundant merge" candidate
+            if _ids_eq(a_src, b_src) and _ids_eq(a_dst, b_dst):
+                continue
+
+            # Bidirectional mirror: A.src==B.dst AND A.dst==B.src
+            if _ids_eq(a_src, b_dst) and _ids_eq(a_dst, b_src):
+                continue
+
+            # True merge candidates: same dst, different src (or same src, different dst)
+            same_dst = _ids_eq(a_dst, b_dst)
+            same_src = _ids_eq(a_src, b_src)
+            if not same_dst and not same_src:
+                continue  # both src and dst differ — not obviously mergeable
+
+            hint = "source addresses" if same_dst else "destination addresses"
+            seen_pairs.add(pair)
+            result.append({
+                "rule_id":   a["id"],
+                "ext_id":    a["ext_id"],
+                "name":      a["name"],
+                "folder":    a.get("folder_name", ""),
+                "device":    a.get("device_group_id", ""),
+                "pair_id":   b["id"],
+                "pair_name": b["name"],
+                "reason":    f"Same direction/service/app, action={a_action} — consider merging {hint}",
+            })
+
+    return result[:50]
 
 
 def run_analysis(rules_with_meta: List[Dict]) -> Dict[str, Any]:
@@ -231,3 +286,56 @@ def run_analysis(rules_with_meta: List[Dict]) -> Dict[str, Any]:
         "shadowed":      shadowed,
         "redundant":     redundant,
     }
+
+
+# ---------------------------------------------------------------------------
+# Persistence helpers (async)
+# ---------------------------------------------------------------------------
+
+async def run_and_save(
+    db: AsyncSession,
+    rules_with_meta: List[Dict],
+    precomputed: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run analysis (or use precomputed result), persist to DB, update in-memory state."""
+    from app.db.models import CachedAnalysis
+    import app.state as state
+    from datetime import datetime, timezone
+
+    result = precomputed if precomputed is not None else run_analysis(rules_with_meta)
+
+    # Keep only last 10 analysis rows to avoid table growth
+    rows = (await db.execute(
+        select(CachedAnalysis).order_by(CachedAnalysis.analyzed_at.desc()).offset(9)
+    )).scalars().all()
+    for old in rows:
+        await db.delete(old)
+
+    row = CachedAnalysis(
+        total_rules=result["total_rules"],
+        total_issues=result["total_issues"],
+        result=result,
+    )
+    db.add(row)
+    await db.flush()
+
+    # Update in-memory state so sidebar badge reflects new count immediately
+    state.analysis_issue_count = result["total_issues"]
+    state.analysis_last_run = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    logger.info(f"Auto-analysis complete: {result['total_issues']} issues in {result['total_rules']} rules")
+    return result
+
+
+async def load_state_from_db(db: AsyncSession) -> None:
+    """Called on app startup to restore in-memory counters from DB."""
+    from app.db.models import CachedAnalysis
+    import app.state as state
+
+    row = (await db.execute(
+        select(CachedAnalysis).order_by(CachedAnalysis.analyzed_at.desc()).limit(1)
+    )).scalars().first()
+
+    if row:
+        state.analysis_issue_count = row.total_issues
+        state.analysis_last_run = row.analyzed_at.strftime("%Y-%m-%d %H:%M UTC")

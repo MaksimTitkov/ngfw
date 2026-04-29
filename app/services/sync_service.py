@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from app.db.models import Folder, CachedRule, CachedObject, DeviceMeta, NatFolder, CachedNatRule
+from app.db.models import Folder, CachedRule, CachedObject, DeviceMeta, NatFolder, CachedNatRule, ChangeLog
 from app.infrastructure.ngfw_client import NGFWClient
 from datetime import datetime, timezone
 import logging
@@ -137,21 +137,39 @@ class SyncService:
                 prec = r_data.get('fetched_precedence') or r_data.get('precedence') or 'pre'
                 sec = 'post' if 'post' in prec.lower() else ('default' if 'default' in prec.lower() else 'pre')
                 
+                # Inject current NGFW position for reorder detection
+                r_data['_ngfw_position'] = i
+
                 if ext_id in db_rules_map:
                     # UPDATE: правило уже есть. Обновляем, но НЕ ТРОГАЕМ папку.
                     rule = db_rules_map[ext_id]
                     old_data = rule.data or {}
+                    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-                    # Детектируем изменения, сделанные напрямую через СУ
-                    if _rule_changed(old_data, r_data):
+                    field_changed = _rule_changed(old_data, r_data)
+                    old_pos = old_data.get('_ngfw_position')
+                    reordered = old_pos is not None and old_pos != i
+
+                    if field_changed or reordered:
                         rule.is_modified = True
-                        rule.modified_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-                        logger.info(f"Rule '{rule.name}' changed externally — marked modified")
+                        rule.modified_at = now_str
+                        action = "update" if field_changed else "reorder"
+                        detail = "Changed directly in NGFW СУ" if field_changed else f"Reordered in NGFW СУ (pos {old_pos}→{i})"
+                        logger.info(f"Rule '{rule.name}' {action} externally")
+                        db.add(ChangeLog(
+                            username="NGFW-СУ",
+                            device_group_id=dg_id,
+                            entity_type="rule",
+                            entity_id=ext_id,
+                            entity_name=rule.name,
+                            action=action,
+                            detail=detail,
+                        ))
 
                     rule.name = r_data.get('name', "Rule")
                     rule.data = r_data
-                    # РњС‹ РЅР°РјРµСЂРµРЅРЅРѕ РќР• РѕР±РЅРѕРІР»СЏРµРј rule.folder_id Рё rule.folder_sort_order,
-                    # С‡С‚РѕР±С‹ СЃРѕС…СЂР°РЅРёС‚СЊ СЃС‚СЂСѓРєС‚СѓСЂСѓ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.
+                    # Намеренно НЕ обновляем rule.folder_id и rule.folder_sort_order,
+                    # чтобы сохранить структуру пользователя.
                 else:
                     # INSERT: РќРѕРІРѕРµ РїСЂР°РІРёР»Рѕ. РљР»Р°РґРµРј РІ РґРµС„РѕР»С‚РЅСѓСЋ РїР°РїРєСѓ СЃРµРєС†РёРё.
                     target_folder_id = default_folders.get(sec)
@@ -181,6 +199,51 @@ class SyncService:
 
         await db.commit()
         logger.info("Smart Sync complete.")
+
+        # 4. Auto-analysis (runs after every sync, results saved to DB)
+        await self._run_auto_analysis(db)
+
+    async def _run_auto_analysis(self, db: AsyncSession):
+        """Fetch cached rules per device group and run analysis independently per device.
+        Results are combined into one record but shadowed/redundant checks never cross devices."""
+        try:
+            from app.services.analyzer_service import run_and_save, run_analysis
+            from app.db.models import CachedRule, Folder
+
+            stmt = (
+                select(CachedRule, Folder)
+                .join(Folder, CachedRule.folder_id == Folder.id)
+                .where(Folder.device_group_id != "global")
+            )
+            rows = (await db.execute(stmt)).all()
+
+            # Group rules by device_group_id
+            by_device: dict[str, list] = {}
+            for rule, folder in rows:
+                dg_id = folder.device_group_id or "unknown"
+                by_device.setdefault(dg_id, []).append({
+                    "id":              rule.id,
+                    "ext_id":          rule.ext_id,
+                    "name":            rule.name,
+                    "folder_name":     folder.name if folder else "",
+                    "device_group_id": dg_id,
+                    "data":            rule.data or {},
+                })
+
+            # Analyze each device independently, then merge results
+            combined = {"total_rules": 0, "total_issues": 0,
+                        "disabled": [], "too_broad": [], "shadowed": [], "redundant": []}
+            for dg_id, rules in by_device.items():
+                res = run_analysis(rules)
+                combined["total_rules"]  += res["total_rules"]
+                combined["total_issues"] += res["total_issues"]
+                for key in ("disabled", "too_broad", "shadowed", "redundant"):
+                    combined[key].extend(res[key])
+
+            await run_and_save(db, [], precomputed=combined)
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Auto-analysis failed: {e}")
 
     async def _sync_nat_rules(self, db: AsyncSession, client: NGFWClient, dg_id: str):
         logger.info(f"Syncing NAT rules for {dg_id}...")
