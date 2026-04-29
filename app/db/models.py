@@ -103,6 +103,21 @@ class RuleTemplate(Base):
     data        = Column(JSON, nullable=False)   # rule data snapshot
 
 
+class CachedAnalysis(Base):
+    """Latest auto-analysis result, one row per run (kept last N rows)."""
+    __tablename__ = "cached_analysis"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    analyzed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    total_rules = Column(Integer, default=0)
+    total_issues = Column(Integer, default=0)
+    result      = Column(JSON, nullable=False)   # full dict from run_analysis()
+
+    __table_args__ = (
+        Index('ix_analysis_ts', 'analyzed_at'),
+    )
+
+
 class ChangeLog(Base):
     """Audit trail of every create/update/delete action in NGFW Manager."""
     __tablename__ = "change_log"

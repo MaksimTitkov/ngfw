@@ -587,6 +587,9 @@ class NGFWClient:
         'Network Group': 'UpdateNetworkObjectGroup',
         'Service':       'UpdateService',
         'Service Group': 'UpdateServiceGroup',
+        'URL Category':  'UpdateURLCategory',
+        'Security Zone': 'UpdateZone',
+        'Zone':          'UpdateZone',
     }
 
     async def update_object(self, obj_type: str, payload: Dict[str, Any]) -> bool:

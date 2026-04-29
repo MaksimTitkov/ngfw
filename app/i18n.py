@@ -124,6 +124,18 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "dash_sec":             "SEC",
         "dash_nat":             "NAT",
         "dash_obj":             "OBJ",
+        "dash_all_devices":     "All Devices",
+        "dash_total_changes":   "Total Changes",
+        "dash_issues":          "Issues",
+        "dash_sec_modified":    "SEC Modified",
+        "dash_nat_modified":    "NAT Modified",
+        "btn_open_analyzer":    "Open Analyzer",
+        "lbl_as_of":            "as of",
+        "anly_disabled":        "Disabled rules",
+        "anly_too_broad":       "Too broad (Any/Any)",
+        "anly_shadowed":        "Shadowed rules",
+        "anly_redundant":       "Redundant rules",
+        "anly_no_issues":       "No issues found",
 
         # Analyzer
         "lbl_total_rules":       "Total Rules",
@@ -219,6 +231,12 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "topbar_policy":   "Policy",
         "topbar_analyzer": "Analyzer",
         "topbar_log":      "Log",
+
+        # Analyzer auto-mode
+        "lbl_auto_analyzed":  "Auto-analyzed after Sync",
+        "lbl_no_sync_yet":    "No analysis data yet",
+        "lbl_sync_to_analyze":"Perform Sync to run the first analysis",
+        "btn_refresh":        "Refresh",
     },
 
     "ru": {
@@ -338,6 +356,18 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "dash_sec":            "SEC",
         "dash_nat":            "NAT",
         "dash_obj":            "OBJ",
+        "dash_all_devices":    "Все устройства",
+        "dash_total_changes":  "Всего изменений",
+        "dash_issues":         "Проблем",
+        "dash_sec_modified":   "SEC изменено",
+        "dash_nat_modified":   "NAT изменено",
+        "btn_open_analyzer":   "Открыть анализатор",
+        "lbl_as_of":           "на",
+        "anly_disabled":       "Выключенные правила",
+        "anly_too_broad":      "Слишком широкие (Any/Any)",
+        "anly_shadowed":       "Теневые правила",
+        "anly_redundant":      "Избыточные правила",
+        "anly_no_issues":      "Проблем не найдено",
 
         # Analyzer
         "lbl_total_rules":       "Всего правил",
@@ -433,6 +463,12 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "topbar_policy":   "Политика",
         "topbar_analyzer": "Анализатор",
         "topbar_log":      "Журнал",
+
+        # Analyzer auto-mode
+        "lbl_auto_analyzed":  "Авто-анализ после Sync",
+        "lbl_no_sync_yet":    "Данных анализа нет",
+        "lbl_sync_to_analyze":"Выполните Sync для первого анализа",
+        "btn_refresh":        "Обновить",
     },
 }
 
@@ -459,6 +495,7 @@ def make_t(lang: str):
 
 def base_ctx(request, **kwargs) -> dict:
     from app.version import VERSION, RELEASE_CHANNEL
+    import app.state as state
     lang = get_lang(request)
     return {
         "request": request,
@@ -466,5 +503,7 @@ def base_ctx(request, **kwargs) -> dict:
         "t": make_t(lang),
         "app_version": VERSION,
         "app_channel": RELEASE_CHANNEL,
+        "analysis_issue_count": state.analysis_issue_count,
+        "analysis_last_run": state.analysis_last_run,
         **kwargs,
     }

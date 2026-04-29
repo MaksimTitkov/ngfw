@@ -11,12 +11,18 @@
         <div class="app-topbar">
             <span class="topbar-title">
                 <i class="fas fa-gauge-high" style="color:#3b82f6;margin-right:6px"></i>
-                {{ t('page_dashboard') }}
+                {% if view == 'device' %}
+                    {{ device_name }}
+                {% else %}
+                    {{ t('page_dashboard') }}
+                {% endif %}
             </span>
             <div class="topbar-sep"></div>
-            <a href="/" class="btn-top" style="text-decoration:none">
-                <i class="fas fa-layer-group"></i> {{ t('topbar_rules') }}
+            {% if view == 'device' %}
+            <a href="/dashboard" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-arrow-left"></i> {{ t('dash_all_devices') }}
             </a>
+            {% endif %}
             <a href="/analyzer" class="btn-top" style="text-decoration:none">
                 <i class="fas fa-magnifying-glass-chart"></i> {{ t('topbar_analyzer') }}
             </a>
@@ -24,276 +30,398 @@
 
         <div class="app-content" style="padding:20px">
 
-            {# ---- Alerts ---- #}
-            {% if alerts %}
-            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
-                {% for a in alerts %}
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:8px;
-                            background:{% if a.level == 'danger' %}rgba(239,68,68,.12){% else %}rgba(245,158,11,.12){% endif %};
-                            border:1px solid {% if a.level == 'danger' %}rgba(239,68,68,.3){% else %}rgba(245,158,11,.3){% endif %}">
-                    <i class="fas {{ a.icon }}" style="color:{% if a.level == 'danger' %}#ef4444{% else %}#f59e0b{% endif %};font-size:14px;flex-shrink:0"></i>
-                    <span style="color:#e2e8f0;font-size:13px">{{ a.msg }}</span>
+{# ═══════════════════════════════════════════════════════
+   GLOBAL VIEW — overview: device count + recent changes
+   ═══════════════════════════════════════════════════════ #}
+{% if view == 'global' %}
+
+    {# Summary row #}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:28px">
+
+        <div class="dash-card" style="border-left:3px solid #10b981">
+            <div class="dash-card-icon" style="background:rgba(16,185,129,.15)">
+                <i class="fas fa-network-wired" style="color:#10b981"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ device_count }}</div>
+                <div class="dash-card-lbl">{{ t('dash_devices') }}</div>
+            </div>
+        </div>
+
+        <div class="dash-card" style="border-left:3px solid #f43f5e">
+            <div class="dash-card-icon" style="background:rgba(244,63,94,.15)">
+                <i class="fas fa-clock-rotate-left" style="color:#f43f5e"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ total_chlog }}</div>
+                <div class="dash-card-lbl">{{ t('dash_total_changes') }}</div>
+            </div>
+        </div>
+
+        {% if analysis %}
+        <div class="dash-card" style="border-left:3px solid {% if analysis.total_issues > 0 %}#f59e0b{% else %}#22c55e{% endif %}">
+            <div class="dash-card-icon" style="background:rgba({% if analysis.total_issues > 0 %}245,158,11{% else %}34,197,94{% endif %},.15)">
+                <i class="fas fa-{% if analysis.total_issues > 0 %}triangle-exclamation{% else %}check-circle{% endif %}"
+                   style="color:{% if analysis.total_issues > 0 %}#f59e0b{% else %}#22c55e{% endif %}"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ analysis.total_issues }}</div>
+                <div class="dash-card-lbl">{{ t('dash_issues') }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+
+    {# Devices quick list #}
+    {% if devices %}
+    <div style="margin-bottom:28px">
+        <div class="dash-section-title">
+            <i class="fas fa-network-wired" style="color:#3b82f6;margin-right:6px"></i>
+            {{ t('dash_device_status') }}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+            {% for dev in devices %}
+            <a href="/dashboard?device_id={{ dev.device_id }}"
+               style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;
+                      background:#1e293b;border:1px solid rgba(255,255,255,.07);text-decoration:none;transition:.15s"
+               onmouseover="this.style.borderColor='rgba(59,130,246,.4)'"
+               onmouseout="this.style.borderColor='rgba(255,255,255,.07)'">
+                <div style="width:34px;height:34px;border-radius:8px;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                    <i class="fas fa-server" style="color:#3b82f6;font-size:13px"></i>
                 </div>
-                {% endfor %}
+                <div style="min-width:0;flex:1">
+                    <div style="color:#e2e8f0;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ dev.name or dev.device_id }}</div>
+                    <div style="color:#475569;font-size:10px;margin-top:1px">{{ dev.device_id[:8] }}…</div>
+                </div>
+                <i class="fas fa-chevron-right" style="color:#334155;font-size:10px;flex-shrink:0"></i>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Recent changes #}
+    <div>
+        <div class="dash-section-title">
+            <i class="fas fa-clock-rotate-left" style="color:#f43f5e;margin-right:6px"></i>
+            {{ t('dash_recent_changes') }}
+            <a href="/changelog" style="margin-left:auto;color:#3b82f6;font-size:11px;font-weight:400;text-decoration:none">{{ t('btn_view_all') }}</a>
+        </div>
+
+        {% if changelog %}
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead>
+                    <tr style="background:rgba(255,255,255,.04)">
+                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left;white-space:nowrap">{{ t('col_time') }}</th>
+                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_user') }}</th>
+                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_action') }}</th>
+                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_target') }}</th>
+                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('lbl_device') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in changelog %}
+                    <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s"
+                        onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                        onmouseout="this.style.background=''">
+                        <td style="padding:7px 12px;color:#64748b;white-space:nowrap">{{ c.ts }}</td>
+                        <td style="padding:7px 12px;color:#94a3b8;font-weight:500">{{ c.username }}</td>
+                        <td style="padding:7px 12px">
+                            <span style="display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;text-transform:uppercase;
+                                {% if c.action == 'create' %}background:rgba(34,197,94,.15);color:#22c55e
+                                {% elif c.action == 'delete' %}background:rgba(239,68,68,.15);color:#ef4444
+                                {% elif c.action == 'update' %}background:rgba(59,130,246,.15);color:#60a5fa
+                                {% elif c.action == 'toggle' %}background:rgba(139,92,246,.15);color:#a78bfa
+                                {% elif c.action == 'reorder' %}background:rgba(139,92,246,.12);color:#8b5cf6
+                                {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}">
+                                {{ c.action }}
+                            </span>
+                            <span style="color:#64748b;font-size:10px;margin-left:4px">{{ c.entity_type }}</span>
+                        </td>
+                        <td style="padding:7px 12px;color:#e2e8f0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                            title="{{ c.entity_name }}">{{ c.entity_name or '—' }}</td>
+                        <td style="padding:7px 12px;color:#475569;font-size:11px;white-space:nowrap">{{ c.device_name }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:40px 20px;text-align:center;color:#475569">
+            <i class="fas fa-clock-rotate-left" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
+            {{ t('dash_no_changes') }}
+        </div>
+        {% endif %}
+    </div>
+
+{# ═══════════════════════════════════════════════════════
+   DEVICE VIEW — individual stats + analysis + changelog
+   ═══════════════════════════════════════════════════════ #}
+{% elif view == 'device' %}
+
+    {# Stat cards row #}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:28px">
+
+        <div class="dash-card" style="border-left:3px solid #3b82f6">
+            <div class="dash-card-icon" style="background:rgba(59,130,246,.15)">
+                <i class="fas fa-layer-group" style="color:#3b82f6"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ stats.sec_total }}</div>
+                <div class="dash-card-lbl">{{ t('dash_security_rules') }}</div>
+            </div>
+        </div>
+
+        <div class="dash-card" style="border-left:3px solid {% if stats.sec_modified > 0 %}#f59e0b{% else %}#22c55e{% endif %}">
+            <div class="dash-card-icon" style="background:rgba({% if stats.sec_modified > 0 %}245,158,11{% else %}34,197,94{% endif %},.15)">
+                <i class="fas fa-{% if stats.sec_modified > 0 %}triangle-exclamation{% else %}check-circle{% endif %}"
+                   style="color:{% if stats.sec_modified > 0 %}#f59e0b{% else %}#22c55e{% endif %}"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ stats.sec_modified }}</div>
+                <div class="dash-card-lbl">{{ t('dash_sec_modified') }}</div>
+            </div>
+        </div>
+
+        <div class="dash-card" style="border-left:3px solid #8b5cf6">
+            <div class="dash-card-icon" style="background:rgba(139,92,246,.15)">
+                <i class="fas fa-arrows-left-right" style="color:#8b5cf6"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ stats.nat_total }}</div>
+                <div class="dash-card-lbl">{{ t('dash_nat_rules') }}</div>
+            </div>
+        </div>
+
+        {% if stats.nat_modified > 0 %}
+        <div class="dash-card" style="border-left:3px solid #f59e0b">
+            <div class="dash-card-icon" style="background:rgba(245,158,11,.15)">
+                <i class="fas fa-triangle-exclamation" style="color:#f59e0b"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ stats.nat_modified }}</div>
+                <div class="dash-card-lbl">{{ t('dash_nat_modified') }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="dash-card" style="border-left:3px solid #06b6d4">
+            <div class="dash-card-icon" style="background:rgba(6,182,212,.15)">
+                <i class="fas fa-cubes" style="color:#06b6d4"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ stats.objects }}</div>
+                <div class="dash-card-lbl">{{ t('dash_objects') }}</div>
+            </div>
+        </div>
+
+        {% if analysis %}
+        <div class="dash-card" style="border-left:3px solid {% if analysis.total_issues > 0 %}#ef4444{% else %}#22c55e{% endif %}">
+            <div class="dash-card-icon" style="background:rgba({% if analysis.total_issues > 0 %}239,68,68{% else %}34,197,94{% endif %},.15)">
+                <i class="fas fa-{% if analysis.total_issues > 0 %}bug{% else %}shield-check{% endif %}"
+                   style="color:{% if analysis.total_issues > 0 %}#ef4444{% else %}#22c55e{% endif %}"></i>
+            </div>
+            <div class="dash-card-body">
+                <div class="dash-card-val">{{ analysis.total_issues }}</div>
+                <div class="dash-card-lbl">{{ t('dash_issues') }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        {# Left col: analyzer + quick links #}
+        <div style="display:flex;flex-direction:column;gap:20px">
+
+            {# Analyzer results #}
+            {% if analysis and analysis.total_issues > 0 %}
+            <div>
+                <div class="dash-section-title">
+                    <i class="fas fa-magnifying-glass-chart" style="color:#a78bfa;margin-right:6px"></i>
+                    {{ t('topbar_analyzer') }}
+                    <span style="margin-left:auto;font-size:10px;color:#475569;font-weight:400">{{ t('lbl_as_of') }} {{ analysis.analyzed_at }}</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                    {% if analysis.disabled %}
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:8px">
+                        <span style="color:#94a3b8;font-size:12px"><i class="fas fa-toggle-off" style="color:#64748b;margin-right:7px"></i>{{ t('anly_disabled') }}</span>
+                        <span style="background:rgba(100,116,139,.15);color:#94a3b8;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px">{{ analysis.disabled|length }}</span>
+                    </div>
+                    {% endif %}
+                    {% if analysis.too_broad %}
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:8px">
+                        <span style="color:#94a3b8;font-size:12px"><i class="fas fa-expand" style="color:#f59e0b;margin-right:7px"></i>{{ t('anly_too_broad') }}</span>
+                        <span style="background:rgba(245,158,11,.15);color:#f59e0b;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px">{{ analysis.too_broad|length }}</span>
+                    </div>
+                    {% endif %}
+                    {% if analysis.shadowed %}
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:8px">
+                        <span style="color:#94a3b8;font-size:12px"><i class="fas fa-eye-slash" style="color:#ef4444;margin-right:7px"></i>{{ t('anly_shadowed') }}</span>
+                        <span style="background:rgba(239,68,68,.15);color:#ef4444;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px">{{ analysis.shadowed|length }}</span>
+                    </div>
+                    {% endif %}
+                    {% if analysis.redundant %}
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:8px">
+                        <span style="color:#94a3b8;font-size:12px"><i class="fas fa-copy" style="color:#8b5cf6;margin-right:7px"></i>{{ t('anly_redundant') }}</span>
+                        <span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px">{{ analysis.redundant|length }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <a href="/analyzer" style="display:block;margin-top:8px;text-align:center;font-size:11px;color:#60a5fa;text-decoration:none;padding:7px;background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.15);border-radius:7px;transition:.15s"
+                   onmouseover="this.style.background='rgba(59,130,246,.15)'"
+                   onmouseout="this.style.background='rgba(59,130,246,.07)'">
+                    <i class="fas fa-arrow-right" style="font-size:10px"></i> {{ t('btn_open_analyzer') }}
+                </a>
+            </div>
+            {% elif analysis %}
+            <div style="padding:20px;background:#1e293b;border:1px solid rgba(34,197,94,.15);border-radius:10px;text-align:center">
+                <i class="fas fa-shield-check" style="font-size:24px;color:#22c55e;display:block;margin-bottom:8px"></i>
+                <div style="color:#22c55e;font-weight:600;font-size:13px">{{ t('anly_no_issues') }}</div>
+                <div style="color:#475569;font-size:11px;margin-top:4px">{{ t('lbl_as_of') }} {{ analysis.analyzed_at }}</div>
             </div>
             {% endif %}
 
-            {# ---- Summary Cards ---- #}
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:24px">
-
-                <div class="dash-card" style="border-left:3px solid #3b82f6">
-                    <div class="dash-card-icon" style="background:rgba(59,130,246,.15)">
-                        <i class="fas fa-layer-group" style="color:#3b82f6"></i>
-                    </div>
-                    <div class="dash-card-body">
-                        <div class="dash-card-val">{{ total_sec }}</div>
-                        <div class="dash-card-lbl">{{ t('dash_security_rules') }}</div>
-                    </div>
+            {# Quick links #}
+            <div>
+                <div class="dash-section-title">
+                    <i class="fas fa-bolt" style="color:#f59e0b;margin-right:6px"></i>
+                    {{ t('dash_quick_nav') }}
                 </div>
-
-                <div class="dash-card" style="border-left:3px solid {% if total_modified > 0 %}#f59e0b{% else %}#22c55e{% endif %}">
-                    <div class="dash-card-icon" style="background:rgba({% if total_modified > 0 %}245,158,11{% else %}34,197,94{% endif %},.15)">
-                        <i class="fas fa-{% if total_modified > 0 %}triangle-exclamation{% else %}check-circle{% endif %}"
-                           style="color:{% if total_modified > 0 %}#f59e0b{% else %}#22c55e{% endif %}"></i>
-                    </div>
-                    <div class="dash-card-body">
-                        <div class="dash-card-val">{{ total_modified }}</div>
-                        <div class="dash-card-lbl">{{ t('dash_modified_ext') }}</div>
-                    </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <a href="/" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;
+                                background:#1e293b;border:1px solid rgba(255,255,255,.07);text-decoration:none;transition:.15s"
+                       onmouseover="this.style.borderColor='rgba(59,130,246,.3)'"
+                       onmouseout="this.style.borderColor='rgba(255,255,255,.07)'">
+                        <i class="fas fa-layer-group" style="color:#3b82f6;width:14px;text-align:center"></i>
+                        <span style="color:#94a3b8;font-size:11px;font-weight:600">{{ t('nav_sec') }}</span>
+                    </a>
+                    <a href="/nat" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;
+                                background:#1e293b;border:1px solid rgba(255,255,255,.07);text-decoration:none;transition:.15s"
+                       onmouseover="this.style.borderColor='rgba(139,92,246,.3)'"
+                       onmouseout="this.style.borderColor='rgba(255,255,255,.07)'">
+                        <i class="fas fa-arrows-left-right" style="color:#8b5cf6;width:14px;text-align:center"></i>
+                        <span style="color:#94a3b8;font-size:11px;font-weight:600">{{ t('nav_nat') }}</span>
+                    </a>
+                    <a href="/objects" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;
+                                background:#1e293b;border:1px solid rgba(255,255,255,.07);text-decoration:none;transition:.15s"
+                       onmouseover="this.style.borderColor='rgba(6,182,212,.3)'"
+                       onmouseout="this.style.borderColor='rgba(255,255,255,.07)'">
+                        <i class="fas fa-cubes" style="color:#06b6d4;width:14px;text-align:center"></i>
+                        <span style="color:#94a3b8;font-size:11px;font-weight:600">{{ t('nav_obj') }}</span>
+                    </a>
+                    <a href="/diff" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;
+                                background:#1e293b;border:1px solid rgba(255,255,255,.07);text-decoration:none;transition:.15s"
+                       onmouseover="this.style.borderColor='rgba(52,211,153,.3)'"
+                       onmouseout="this.style.borderColor='rgba(255,255,255,.07)'">
+                        <i class="fas fa-code-compare" style="color:#34d399;width:14px;text-align:center"></i>
+                        <span style="color:#94a3b8;font-size:11px;font-weight:600">{{ t('nav_diff') }}</span>
+                    </a>
                 </div>
-
-                <div class="dash-card" style="border-left:3px solid #8b5cf6">
-                    <div class="dash-card-icon" style="background:rgba(139,92,246,.15)">
-                        <i class="fas fa-arrows-left-right" style="color:#8b5cf6"></i>
-                    </div>
-                    <div class="dash-card-body">
-                        <div class="dash-card-val">{{ total_nat }}</div>
-                        <div class="dash-card-lbl">{{ t('dash_nat_rules') }}</div>
-                    </div>
-                </div>
-
-                <div class="dash-card" style="border-left:3px solid #06b6d4">
-                    <div class="dash-card-icon" style="background:rgba(6,182,212,.15)">
-                        <i class="fas fa-cubes" style="color:#06b6d4"></i>
-                    </div>
-                    <div class="dash-card-body">
-                        <div class="dash-card-val">{{ total_objects }}</div>
-                        <div class="dash-card-lbl">{{ t('dash_objects') }}</div>
-                    </div>
-                </div>
-
-                <div class="dash-card" style="border-left:3px solid #f43f5e">
-                    <div class="dash-card-icon" style="background:rgba(244,63,94,.15)">
-                        <i class="fas fa-clock-rotate-left" style="color:#f43f5e"></i>
-                    </div>
-                    <div class="dash-card-body">
-                        <div class="dash-card-val">{{ changelog|length }}</div>
-                        <div class="dash-card-lbl">{{ t('dash_recent_changes') }}</div>
-                    </div>
-                </div>
-
-                <div class="dash-card" style="border-left:3px solid #10b981">
-                    <div class="dash-card-icon" style="background:rgba(16,185,129,.15)">
-                        <i class="fas fa-network-wired" style="color:#10b981"></i>
-                    </div>
-                    <div class="dash-card-body">
-                        <div class="dash-card-val">{{ dev_stats|length }}</div>
-                        <div class="dash-card-lbl">{{ t('dash_devices') }}</div>
-                    </div>
-                </div>
-
             </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        </div>
 
-                {# ---- Per-device Cards ---- #}
-                <div>
-                    <div class="dash-section-title">
-                        <i class="fas fa-network-wired" style="color:#3b82f6;margin-right:6px"></i>
-                        {{ t('dash_device_status') }}
-                    </div>
+        {# Right col: changelog + modified rules #}
+        <div style="display:flex;flex-direction:column;gap:20px">
 
-                    {% if dev_stats %}
-                    <div style="display:flex;flex-direction:column;gap:10px">
-                        {% for d in dev_stats %}
-                        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                                <i class="fas fa-server" style="color:#3b82f6;font-size:13px"></i>
-                                <span style="color:#e2e8f0;font-weight:600;font-size:14px">{{ d.name or d.device_id }}</span>
-                                {% if d.sec_modified + d.nat_modified > 0 %}
-                                <span style="margin-left:auto;background:rgba(245,158,11,.15);color:#f59e0b;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px">
-                                    {{ d.sec_modified + d.nat_modified }} {{ t('lbl_modified') }}
-                                </span>
-                                {% else %}
-                                <span style="margin-left:auto;background:rgba(34,197,94,.12);color:#22c55e;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px">
-                                    {{ t('lbl_clean') }}
-                                </span>
-                                {% endif %}
-                            </div>
-                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-                                <div style="text-align:center;background:#0f172a;border-radius:7px;padding:8px 4px">
-                                    <div style="color:#3b82f6;font-size:18px;font-weight:700">{{ d.sec_total }}</div>
-                                    <div style="color:#64748b;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">{{ t('dash_sec') }}</div>
-                                </div>
-                                <div style="text-align:center;background:#0f172a;border-radius:7px;padding:8px 4px">
-                                    <div style="color:#8b5cf6;font-size:18px;font-weight:700">{{ d.nat_total }}</div>
-                                    <div style="color:#64748b;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">{{ t('dash_nat') }}</div>
-                                </div>
-                                <div style="text-align:center;background:#0f172a;border-radius:7px;padding:8px 4px">
-                                    <div style="color:#06b6d4;font-size:18px;font-weight:700">{{ d.objects }}</div>
-                                    <div style="color:#64748b;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">{{ t('dash_obj') }}</div>
-                                </div>
-                            </div>
-                            <div style="margin-top:10px;display:flex;gap:8px">
-                                <a href="/?folder_id=" class="btn btn-sm"
-                                   style="flex:1;background:rgba(59,130,246,.1);color:#60a5fa;border:1px solid rgba(59,130,246,.2);font-size:11px;padding:4px;text-decoration:none;text-align:center;border-radius:6px">
-                                    <i class="fas fa-layer-group" style="font-size:10px"></i> {{ t('btn_rules') }}
-                                </a>
-                                <a href="/diff" class="btn btn-sm"
-                                   style="flex:1;background:rgba(139,92,246,.1);color:#a78bfa;border:1px solid rgba(139,92,246,.2);font-size:11px;padding:4px;text-decoration:none;text-align:center;border-radius:6px">
-                                    <i class="fas fa-code-compare" style="font-size:10px"></i> {{ t('btn_diff') }}
-                                </a>
-                                <a href="/analyzer" class="btn btn-sm"
-                                   style="flex:1;background:rgba(16,185,129,.1);color:#34d399;border:1px solid rgba(16,185,129,.2);font-size:11px;padding:4px;text-decoration:none;text-align:center;border-radius:6px">
-                                    <i class="fas fa-magnifying-glass-chart" style="font-size:10px"></i> {{ t('btn_analyze') }}
-                                </a>
-                            </div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:40px 20px;text-align:center;color:#475569">
-                        <i class="fas fa-database" style="font-size:32px;opacity:.3;display:block;margin-bottom:10px"></i>
-                        {{ t('dash_no_devices') }}<br>
-                        {{ t('dash_go_rules') }} — {{ t('dash_go_sync') }}
-                    </div>
-                    {% endif %}
-
-                    {# Modified rules alert block #}
-                    {% if modified_rules %}
-                    <div style="margin-top:16px">
-                        <div class="dash-section-title">
-                            <i class="fas fa-triangle-exclamation" style="color:#f59e0b;margin-right:6px"></i>
-                            {{ t('dash_ext_modified') }}
-                        </div>
-                        <div style="background:#1e293b;border:1px solid rgba(245,158,11,.2);border-radius:10px;overflow:hidden">
-                            <table style="width:100%;border-collapse:collapse;font-size:12px">
-                                <thead>
-                                    <tr style="background:rgba(245,158,11,.08)">
-                                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_rule') }}</th>
-                                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_device') }}</th>
-                                        <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_modified') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for r in modified_rules[:10] %}
-                                    <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''">
-                                        <td style="padding:7px 12px">
-                                            <a href="/" style="color:#fbbf24;text-decoration:none;font-weight:500">{{ r.name }}</a>
-                                        </td>
-                                        <td style="padding:7px 12px;color:#64748b">{{ r.device }}</td>
-                                        <td style="padding:7px 12px;color:#64748b">{{ r.modified_at[:16] if r.modified_at else '—' }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                            {% if modified_rules|length > 10 %}
-                            <div style="padding:8px 12px;text-align:center;color:#64748b;font-size:11px;border-top:1px solid rgba(255,255,255,.04)">
-                                … {{ t('lbl_and_more', modified_rules|length - 10) }}
-                            </div>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endif %}
-
+            {# Recent changes for this device #}
+            <div>
+                <div class="dash-section-title">
+                    <i class="fas fa-clock-rotate-left" style="color:#f43f5e;margin-right:6px"></i>
+                    {{ t('dash_recent_changes') }}
+                    <a href="/changelog" style="margin-left:auto;color:#3b82f6;font-size:11px;font-weight:400;text-decoration:none">{{ t('btn_view_all') }}</a>
                 </div>
-
-                {# ---- Recent Changes ---- #}
-                <div>
-                    <div class="dash-section-title">
-                        <i class="fas fa-clock-rotate-left" style="color:#f43f5e;margin-right:6px"></i>
-                        {{ t('dash_recent_changes') }}
-                        <a href="/changelog" style="margin-left:auto;color:#3b82f6;font-size:11px;font-weight:400;text-decoration:none">{{ t('btn_view_all') }}</a>
-                    </div>
-
-                    {% if changelog %}
-                    <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
-                        <table style="width:100%;border-collapse:collapse;font-size:12px">
-                            <thead>
-                                <tr style="background:rgba(255,255,255,.04)">
-                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_time') }}</th>
-                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_user') }}</th>
-                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_action') }}</th>
-                                    <th style="padding:8px 12px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_target') }}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for c in changelog %}
-                                <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s"
-                                    onmouseover="this.style.background='rgba(255,255,255,.03)'"
-                                    onmouseout="this.style.background=''">
-                                    <td style="padding:7px 12px;color:#64748b;white-space:nowrap">{{ c.ts }}</td>
-                                    <td style="padding:7px 12px;color:#94a3b8;font-weight:500">{{ c.username }}</td>
-                                    <td style="padding:7px 12px">
-                                        <span style="display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;text-transform:uppercase;
-                                            {% if c.action == 'create' %}background:rgba(34,197,94,.15);color:#22c55e
-                                            {% elif c.action == 'delete' %}background:rgba(239,68,68,.15);color:#ef4444
-                                            {% elif c.action == 'update' %}background:rgba(59,130,246,.15);color:#60a5fa
-                                            {% elif c.action == 'toggle' %}background:rgba(139,92,246,.15);color:#a78bfa
-                                            {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}">
-                                            {{ c.action }}
-                                        </span>
-                                        <span style="color:#64748b;font-size:10px;margin-left:4px">{{ c.entity_type }}</span>
-                                    </td>
-                                    <td style="padding:7px 12px;color:#e2e8f0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-                                        title="{{ c.entity_name }}">{{ c.entity_name or '—' }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:40px 20px;text-align:center;color:#475569">
-                        <i class="fas fa-clock-rotate-left" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
-                        {{ t('dash_no_changes') }}
-                    </div>
-                    {% endif %}
-
-                    {# Quick Nav links #}
-                    <div style="margin-top:16px">
-                        <div class="dash-section-title">
-                            <i class="fas fa-bolt" style="color:#f59e0b;margin-right:6px"></i>
-                            {{ t('dash_quick_nav') }}
-                        </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-                            {% set nav_items = [
-                                ("/", "fa-layer-group", "#3b82f6", "nav_sec"),
-                                ("/nat", "fa-arrows-left-right", "#8b5cf6", "nav_nat"),
-                                ("/objects", "fa-cubes", "#06b6d4", "nav_obj"),
-                                ("/logs", "fa-list-alt", "#10b981", "nav_log"),
-                                ("/policy", "fa-shield-virus", "#f59e0b", "nav_pol"),
-                                ("/system", "fa-server", "#64748b", "nav_sys"),
-                                ("/analyzer", "fa-magnifying-glass-chart", "#a78bfa", "nav_anly"),
-                                ("/changelog", "fa-clock-rotate-left", "#f43f5e", "nav_clg"),
-                                ("/diff", "fa-code-compare", "#34d399", "nav_diff"),
-                            ] %}
-                            {% for url, icon, color, key in nav_items %}
-                            <a href="{{ url }}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;
-                                        gap:5px;padding:12px 6px;border-radius:8px;
-                                        background:#1e293b;border:1px solid rgba(255,255,255,.07);
-                                        text-decoration:none;transition:.15s"
-                               onmouseover="this.style.background='rgba(255,255,255,.06)'"
-                               onmouseout="this.style.background='#1e293b'">
-                                <i class="fas {{ icon }}" style="color:{{ color }};font-size:16px"></i>
-                                <span style="color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">{{ t(key) }}</span>
-                            </a>
+                {% if changelog %}
+                <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                        <thead>
+                            <tr style="background:rgba(255,255,255,.04)">
+                                <th style="padding:7px 10px;color:#94a3b8;font-weight:600;text-align:left;white-space:nowrap">{{ t('col_time') }}</th>
+                                <th style="padding:7px 10px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_user') }}</th>
+                                <th style="padding:7px 10px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_action') }}</th>
+                                <th style="padding:7px 10px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_target') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in changelog %}
+                            <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s"
+                                onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                                onmouseout="this.style.background=''">
+                                <td style="padding:6px 10px;color:#64748b;white-space:nowrap;font-size:11px">{{ c.ts }}</td>
+                                <td style="padding:6px 10px;color:#94a3b8;font-size:11px;font-weight:500">{{ c.username }}</td>
+                                <td style="padding:6px 10px">
+                                    <span style="display:inline-block;padding:1px 6px;border-radius:20px;font-size:9px;font-weight:700;text-transform:uppercase;
+                                        {% if c.action == 'create' %}background:rgba(34,197,94,.15);color:#22c55e
+                                        {% elif c.action == 'delete' %}background:rgba(239,68,68,.15);color:#ef4444
+                                        {% elif c.action == 'update' %}background:rgba(59,130,246,.15);color:#60a5fa
+                                        {% elif c.action == 'toggle' %}background:rgba(139,92,246,.15);color:#a78bfa
+                                        {% elif c.action == 'reorder' %}background:rgba(139,92,246,.12);color:#8b5cf6
+                                        {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}">
+                                        {{ c.action }}
+                                    </span>
+                                    <span style="color:#64748b;font-size:9px;margin-left:3px">{{ c.entity_type }}</span>
+                                </td>
+                                <td style="padding:6px 10px;color:#e2e8f0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px"
+                                    title="{{ c.entity_name }}">{{ c.entity_name or '—' }}</td>
+                            </tr>
                             {% endfor %}
-                        </div>
-                    </div>
-
+                        </tbody>
+                    </table>
                 </div>
+                {% else %}
+                <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:24px;text-align:center;color:#475569;font-size:12px">
+                    {{ t('dash_no_changes') }}
+                </div>
+                {% endif %}
+            </div>
 
-            </div>{# /grid #}
+            {# Modified rules #}
+            {% if modified_rules %}
+            <div>
+                <div class="dash-section-title">
+                    <i class="fas fa-triangle-exclamation" style="color:#f59e0b;margin-right:6px"></i>
+                    {{ t('dash_ext_modified') }}
+                </div>
+                <div style="background:#1e293b;border:1px solid rgba(245,158,11,.2);border-radius:10px;overflow:hidden">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                        <thead>
+                            <tr style="background:rgba(245,158,11,.06)">
+                                <th style="padding:7px 10px;color:#94a3b8;font-weight:600;text-align:left">{{ t('col_rule') }}</th>
+                                <th style="padding:7px 10px;color:#94a3b8;font-weight:600;text-align:left;white-space:nowrap">{{ t('col_modified') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in modified_rules[:10] %}
+                            <tr style="border-top:1px solid rgba(255,255,255,.04);transition:.15s"
+                                onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                                onmouseout="this.style.background=''">
+                                <td style="padding:6px 10px">
+                                    <a href="/find-rule?rule_name={{ r.name | urlencode }}"
+                                       style="color:#fbbf24;text-decoration:none;font-weight:500;font-size:12px"
+                                       title="Go to rule">{{ r.name }}</a>
+                                </td>
+                                <td style="padding:6px 10px;color:#64748b;font-size:11px;white-space:nowrap">{{ r.modified_at[:16] if r.modified_at else '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% if modified_rules|length > 10 %}
+                    <div style="padding:7px 10px;text-align:center;color:#64748b;font-size:11px;border-top:1px solid rgba(255,255,255,.04)">
+                        … {{ t('lbl_and_more', modified_rules|length - 10) }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+        </div>
+    </div>{# /2-col grid #}
+
+{% endif %}{# /view #}
 
         </div>{# /app-content #}
     </div>{# /app-main #}

@@ -24,22 +24,28 @@
 
         <div class="app-content" style="padding:20px">
 
-            {# ---- Control bar ---- #}
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px;
-                        background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
-                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
-                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">{{ t('lbl_device') }}</label>
+            {# ---- Info bar ---- #}
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px;
+                        background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 16px">
+
+                {# Auto-analysis status #}
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
+                    <i class="fas fa-circle-check" style="color:#22c55e;font-size:13px"></i>
+                    <span style="font-size:12px;color:#94a3b8;font-weight:600">{{ t('lbl_auto_analyzed') }}</span>
+                    <span id="lblLastRun" style="font-size:11px;color:#475569;font-style:italic">—</span>
+                </div>
+
+                {# Per-device filter (optional) #}
+                <div style="display:flex;align-items:center;gap:8px">
+                    <label style="color:#94a3b8;font-size:11px;white-space:nowrap;font-weight:600">{{ t('lbl_device') }}</label>
                     <select id="selDevice" class="form-select form-select-sm"
                             style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:12px;width:180px"
                             onchange="onDeviceChange()">
-                        <option value="">{{ t('lbl_select_device') }}</option>
+                        <option value="">{{ t('lbl_all_devices') }}</option>
                         {% for d in devices %}
                         <option value="{{ d.device_id }}">{{ d.name or d.device_id }}</option>
                         {% endfor %}
                     </select>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
-                    <label style="color:#94a3b8;font-size:12px;white-space:nowrap;font-weight:600">{{ t('lbl_folder') }}</label>
                     <select id="selFolder" class="form-select form-select-sm"
                             style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:12px;width:160px"
                             disabled>
@@ -56,11 +62,6 @@
                         <i class="fas fa-rotate"></i>
                     </button>
                 </div>
-                <button class="btn btn-sm" id="btnRun"
-                        style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;border:none;padding:6px 20px;border-radius:6px;font-weight:600;font-size:13px"
-                        onclick="runAnalysis()" disabled>
-                    <i class="fas fa-play"></i> {{ t('btn_analyze') }}
-                </button>
             </div>
 
             {# ---- Summary cards ---- #}
@@ -234,6 +235,37 @@
 <script>
 const TREE = {{ js_tree | tojson }};
 let _lastResult = null;
+
+// Auto-load cached analysis on page open
+document.addEventListener('DOMContentLoaded', loadCached);
+
+async function loadCached() {
+    document.getElementById('summaryRow').style.display = 'none';
+    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+
+    try {
+        const resp = await fetch('/api/v1/analyzer/cached');
+        const data = await resp.json();
+        if (data.status === 'no_data') {
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('resultsArea').style.display = '';
+            document.getElementById('allClear').style.display = '';
+            document.getElementById('allClear').innerHTML =
+                '<i class="fas fa-rotate" style="font-size:36px;opacity:.3;display:block;margin-bottom:12px"></i>' +
+                '<div style="font-size:15px;font-weight:700;color:#475569">{{ t("lbl_no_sync_yet") }}</div>' +
+                '<div style="font-size:12px;color:#334155;margin-top:4px">{{ t("lbl_sync_to_analyze") }}</div>';
+            return;
+        }
+        _lastResult = data;
+        document.getElementById('lblLastRun').textContent = data.analyzed_at || '';
+        renderResults(data);
+    } catch(e) {
+        showToast('Error loading analysis: ' + e, 'danger');
+    } finally {
+        document.getElementById('spinner').style.display = 'none';
+    }
+}
 
 function onDeviceChange() {
     const devId = document.getElementById('selDevice').value;
