@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete as sa_delete, cast, Text, or_
 from sqlalchemy.orm import selectinload
 from app.db.session import get_db
-from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog, RuleTemplate
+from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog, RuleTemplate, CachedAnalysis
 from app.services.deploy_service import DeployService
 from app.services.analyzer_service import run_analysis
 from app.services.sync_service import SyncService
 from app.i18n import base_ctx, get_lang
+from app.version import VERSION, RELEASE_CHANNEL
 from app.infrastructure.ngfw_client import NGFWClient
 from fastapi.templating import Jinja2Templates
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,7 @@ import io
 from datetime import datetime, timezone, timedelta
 import yaml
 import openpyxl
+from urllib.parse import quote
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
@@ -901,7 +903,7 @@ async def list_objects(request: Request, device_id: str = Query(None), page: int
     objects = (await db.execute(query)).scalars().all()
 
     return templates.TemplateResponse(request, "objects.html", base_ctx(request,
-        devices=devices, selected_device_id=selected_device_id,
+        user=user, devices=devices, selected_device_id=selected_device_id,
         objects=objects, type_filter=type_filter, page=page,
         total_pages=total_pages, total_items=total_items,
     ))
@@ -943,6 +945,7 @@ class ObjectUpdateRequest(BaseModel):
     dst_port_start: int = 0
     dst_port_end: int = 0
     member_ids: List[str] = []
+    urls: List[str] = []  # URL Category entries
 
 
 @router.post("/api/v1/objects/create")
@@ -1074,6 +1077,13 @@ async def update_object_endpoint(request: Request, data: ObjectUpdateRequest, db
             payload = {"id": oid, "name": name, "deviceGroupId": dg_id,
                        "serviceIds": data.member_ids}
             type_lbl = "Service Group"
+        elif data.obj_type == 'urlcat':
+            urls = [u.strip() for u in data.urls if u.strip()]
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id, "urls": urls}
+            type_lbl = "URL Category"
+        elif data.obj_type == 'zone':
+            payload = {"id": oid, "name": name, "deviceGroupId": dg_id}
+            type_lbl = "Security Zone"
         else:
             return JSONResponse({"status": "error", "message": f"Update not supported for type: {data.obj_type}"}, status_code=400)
 
@@ -1086,7 +1096,10 @@ async def update_object_endpoint(request: Request, data: ObjectUpdateRequest, db
         cached = obj_res.scalar_one_or_none()
         if cached:
             cached.name = name
-            cached.data = {**(cached.data or {}), "name": name}
+            update_data: Dict[str, Any] = {**(cached.data or {}), "name": name}
+            if data.obj_type == 'urlcat':
+                update_data["urls"] = [u.strip() for u in data.urls if u.strip()]
+            cached.data = update_data
 
         await _log_change(db, user, "update", "object", name, oid, dg_id, f"Type: {type_lbl}")
         await db.commit()
@@ -3162,136 +3175,134 @@ async def diff_modified(device_group_id: str = Query(...), db: AsyncSession = De
 # ---------------------------------------------------------------------------
 
 @router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
+async def dashboard_page(
+    request: Request,
+    device_id: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
 
-    # Device metadata
+    # All devices (for sidebar list)
     meta_res = await db.execute(select(DeviceMeta))
-    device_names = {o.device_id: o.name for o in meta_res.scalars().all()}
+    all_meta = [m for m in meta_res.scalars().all() if m.device_id != "global"]
+    device_names = {m.device_id: m.name for m in all_meta}
 
-    # Sidebar tree (minimal — just for sidebar rendering)
-    folders_res = await db.execute(select(Folder).order_by(Folder.device_group_id, Folder.sort_order))
-    all_folders = folders_res.scalars().all()
-
-    orm_tree: Dict[str, Any] = {}
+    # --- Build folder → device map (needed for rule stats) ---
+    folders_res = await db.execute(select(Folder).order_by(Folder.device_group_id))
     folder_to_device: Dict[str, str] = {}
-    for f in all_folders:
-        gid = f.device_group_id or "unknown"
-        if gid == "global":
-            continue
-        folder_to_device[f.id] = gid
-        dev_name = device_names.get(gid, f"Device {gid[:8]}")
-        if gid not in orm_tree:
-            orm_tree[gid] = {"name": dev_name, "id": gid, "sections": {"pre": [], "post": [], "default": []}}
-        f.rules_count = 0
-        sec = f.section.lower() if f.section and f.section.lower() in ('pre', 'post', 'default') else 'pre'
-        orm_tree[gid]["sections"][sec].append(f)
+    for f in folders_res.scalars().all():
+        if f.device_group_id and f.device_group_id != "global":
+            folder_to_device[f.id] = f.device_group_id
 
-    # Per-device stats: sec rules
-    rules_res = await db.execute(select(CachedRule))
-    all_rules = rules_res.scalars().all()
+    # --- Helper: build stats for one or all devices ---
+    async def _build_stats(gid_filter: Optional[str]) -> Dict:
+        stats = {"sec_total": 0, "sec_modified": 0, "nat_total": 0, "nat_modified": 0, "objects": 0}
 
-    # Per-device aggregates
-    dev_stats: Dict[str, Dict] = {}
-    for gid in orm_tree:
-        dev_stats[gid] = {
-            "name": device_names.get(gid, gid[:8]),
-            "device_id": gid,
-            "sec_total": 0,
-            "sec_modified": 0,
-            "nat_total": 0,
-            "nat_modified": 0,
-            "objects": 0,
-        }
-
-    for r in all_rules:
-        gid = folder_to_device.get(r.folder_id or "")
-        if gid and gid in dev_stats:
-            dev_stats[gid]["sec_total"] += 1
-            if r.is_modified:
-                dev_stats[gid]["sec_modified"] += 1
-
-    # NAT rules
-    nat_res = await db.execute(select(CachedNatRule))
-    for r in nat_res.scalars().all():
-        gid = r.device_group_id or ""
-        if gid in dev_stats:
-            dev_stats[gid]["nat_total"] += 1
-            if r.is_modified:
-                dev_stats[gid]["nat_modified"] += 1
-
-    # Objects per device
-    obj_res = await db.execute(select(CachedObject))
-    for o in obj_res.scalars().all():
-        gid = o.device_group_id or ""
-        if gid in dev_stats:
-            dev_stats[gid]["objects"] += 1
-
-    # Global totals
-    total_sec      = sum(v["sec_total"] for v in dev_stats.values())
-    total_modified = sum(v["sec_modified"] for v in dev_stats.values())
-    total_nat      = sum(v["nat_total"] for v in dev_stats.values())
-    total_objects  = sum(v["objects"] for v in dev_stats.values())
-
-    # Recent changelog
-    chlog_res = await db.execute(
-        select(ChangeLog).order_by(ChangeLog.ts.desc()).limit(20)
-    )
-    changelog = []
-    for c in chlog_res.scalars().all():
-        changelog.append({
-            "ts":          c.ts.strftime("%Y-%m-%d %H:%M") if c.ts else "",
-            "username":    c.username,
-            "device":      device_names.get(c.device_group_id or "", c.device_group_id or ""),
-            "entity_type": c.entity_type,
-            "entity_name": c.entity_name or "",
-            "action":      c.action,
-            "detail":      c.detail or "",
-        })
-
-    # Modified rules list (for alert panel)
-    modified_rules = []
-    for r in all_rules:
-        if r.is_modified:
+        rule_q = select(CachedRule)
+        for r in (await db.execute(rule_q)).scalars().all():
             gid = folder_to_device.get(r.folder_id or "")
-            modified_rules.append({
-                "id":          r.id,
-                "name":        r.name,
-                "device":      device_names.get(gid or "", gid or "") if gid else "",
-                "modified_at": r.modified_at or "",
-            })
+            if gid_filter and gid != gid_filter:
+                continue
+            stats["sec_total"] += 1
+            if r.is_modified:
+                stats["sec_modified"] += 1
 
-    # Alerts
-    alerts = []
-    if total_modified > 0:
-        alerts.append({
-            "level": "warning",
-            "icon": "fa-triangle-exclamation",
-            "msg": f"{total_modified} rule(s) modified externally — review and acknowledge"
-        })
-    if not orm_tree:
-        alerts.append({
-            "level": "danger",
-            "icon": "fa-database",
-            "msg": "No devices synced yet — click Sync on the Security Rules page"
-        })
-    for gid, s in dev_stats.items():
-        if s["sec_modified"] + s["nat_modified"] > 10:
-            alerts.append({
-                "level": "danger",
-                "icon": "fa-circle-exclamation",
-                "msg": f"Device «{s['name']}» has {s['sec_modified']+s['nat_modified']} modified rules — deploy recommended"
+        nat_q = select(CachedNatRule)
+        if gid_filter:
+            nat_q = nat_q.where(CachedNatRule.device_group_id == gid_filter)
+        for r in (await db.execute(nat_q)).scalars().all():
+            stats["nat_total"] += 1
+            if r.is_modified:
+                stats["nat_modified"] += 1
+
+        obj_q = select(CachedObject)
+        if gid_filter:
+            obj_q = obj_q.where(CachedObject.device_group_id == gid_filter)
+        stats["objects"] = len((await db.execute(obj_q)).scalars().all())
+        return stats
+
+    # --- Changelog ---
+    async def _build_changelog(gid_filter: Optional[str], limit: int = 20):
+        q = select(ChangeLog).order_by(ChangeLog.ts.desc())
+        if gid_filter:
+            q = q.where(ChangeLog.device_group_id == gid_filter)
+        q = q.limit(limit)
+        result = []
+        for c in (await db.execute(q)).scalars().all():
+            gid = c.device_group_id or ""
+            result.append({
+                "ts":          c.ts.strftime("%Y-%m-%d %H:%M") if c.ts else "",
+                "username":    c.username,
+                "entity_type": c.entity_type,
+                "entity_name": c.entity_name or "",
+                "action":      c.action,
+                "device_name": device_names.get(gid, gid[:8] if gid else "—"),
             })
+        return result
+
+    # --- Analyzer: filter cached result for device ---
+    async def _build_analysis(gid_filter: Optional[str]) -> Optional[Dict]:
+        try:
+            row = (await db.execute(
+                select(CachedAnalysis).order_by(CachedAnalysis.analyzed_at.desc()).limit(1)
+            )).scalars().first()
+            if not row:
+                return None
+            result = row.result or {}
+            if not gid_filter:
+                return {"total_issues": row.total_issues, "analyzed_at": row.analyzed_at.strftime("%H:%M")}
+            def _filt(lst): return [x for x in (lst or []) if x.get("device") == gid_filter]
+            dis = _filt(result.get("disabled", []))
+            broad = _filt(result.get("too_broad", []))
+            shadow = _filt(result.get("shadowed", []))
+            redund = _filt(result.get("redundant", []))
+            return {
+                "total_issues": len(dis) + len(broad) + len(shadow) + len(redund),
+                "disabled": dis, "too_broad": broad, "shadowed": shadow, "redundant": redund,
+                "analyzed_at": row.analyzed_at.strftime("%H:%M"),
+            }
+        except Exception as e:
+            logger.warning(f"[dashboard] _build_analysis failed: {e}")
+            return None
+
+    # ── Global view (no device selected) ──
+    if not device_id:
+        try:
+            changelog = await _build_changelog(None, limit=20)
+            total_chlog = (await db.execute(select(func.count()).select_from(ChangeLog))).scalar() or 0
+        except Exception as e:
+            logger.warning(f"[dashboard] changelog query failed: {e}")
+            changelog, total_chlog = [], 0
+        analysis = await _build_analysis(None)
+
+        return templates.TemplateResponse(request, "dashboard.html", base_ctx(request,
+            user=user, devices=all_meta, selected_device_id=None,
+            view="global",
+            device_count=len(all_meta),
+            changelog=changelog, total_chlog=total_chlog,
+            analysis=analysis,
+        ))
+
+    # ── Device view ──
+    dev_name = device_names.get(device_id, device_id[:8])
+    stats = await _build_stats(device_id)
+    changelog = await _build_changelog(device_id, limit=20)
+    analysis = await _build_analysis(device_id)
+
+    # Modified rules for this device
+    modified_rules = []
+    for r in (await db.execute(select(CachedRule))).scalars().all():
+        if r.is_modified and folder_to_device.get(r.folder_id or "") == device_id:
+            modified_rules.append({"name": r.name, "modified_at": r.modified_at or ""})
 
     return templates.TemplateResponse(request, "dashboard.html", base_ctx(request,
-        tree=orm_tree, user=user,
-        selected_folder_id=None, current_device_id=None,
-        dev_stats=list(dev_stats.values()),
-        total_sec=total_sec, total_modified=total_modified,
-        total_nat=total_nat, total_objects=total_objects,
-        changelog=changelog, modified_rules=modified_rules, alerts=alerts,
+        user=user, devices=all_meta, selected_device_id=device_id,
+        view="device",
+        device_name=dev_name, device_id=device_id,
+        stats=stats, changelog=changelog, analysis=analysis,
+        modified_rules=modified_rules,
     ))
 
 
@@ -3734,6 +3745,235 @@ async def export_folders_yaml(
         media_type="text/yaml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/api/v1/import/folders/yaml")
+async def import_folders_yaml(
+    request: Request,
+    device_group_id: str = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore virtual folder structure from a previously exported YAML file."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    content = await file.read()
+    try:
+        data = yaml.safe_load(content.decode("utf-8"))
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": f"YAML parse error: {e}"}, status_code=400)
+
+    sections = data.get("sections") if isinstance(data, dict) else None
+    if not sections:
+        return JSONResponse({"status": "error", "message": "Invalid YAML: 'sections' key missing"}, status_code=400)
+
+    # Load existing folders keyed by (section, name)
+    folders_res = await db.execute(select(Folder).where(Folder.device_group_id == device_group_id))
+    existing_folders: Dict[tuple, Folder] = {(f.section, f.name): f for f in folders_res.scalars().all()}
+
+    # Load all rules for this device keyed by ext_id
+    fids = list({f.id for f in existing_folders.values()})
+    all_rules: Dict[str, CachedRule] = {}
+    if fids:
+        rules_res = await db.execute(select(CachedRule).where(CachedRule.folder_id.in_(fids)))
+        all_rules = {r.ext_id: r for r in rules_res.scalars().all()}
+
+    folders_created = 0
+    folders_updated = 0
+    rules_assigned  = 0
+
+    for section_name, folder_list in sections.items():
+        if not isinstance(folder_list, list):
+            continue
+        for folder_data in folder_list:
+            fname = str(folder_data.get("name", "")).strip()
+            if not fname:
+                continue
+            fsort = int(folder_data.get("sort_order") or 0)
+
+            key = (section_name, fname)
+            if key in existing_folders:
+                folder = existing_folders[key]
+                folder.sort_order = fsort
+                folders_updated += 1
+            else:
+                folder = Folder(
+                    id=str(uuid.uuid4()),
+                    name=fname,
+                    device_group_id=device_group_id,
+                    section=section_name,
+                    sort_order=fsort,
+                )
+                db.add(folder)
+                existing_folders[key] = folder
+                folders_created += 1
+
+            for rule_data in (folder_data.get("rules") or []):
+                ext_id = rule_data.get("ext_id")
+                if not ext_id or ext_id not in all_rules:
+                    continue
+                rule = all_rules[ext_id]
+                rule.folder_id = folder.id
+                rule.folder_sort_order = int(rule_data.get("sort_order") or 0)
+                rules_assigned += 1
+
+    await db.commit()
+    return JSONResponse({
+        "status": "ok",
+        "folders_created": folders_created,
+        "folders_updated": folders_updated,
+        "rules_assigned":  rules_assigned,
+    })
+
+
+@router.get("/api/v1/export/rules/html")
+async def export_rules_html(
+    request: Request,
+    device_group_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a printable HTML policy report (browser Print → Save as PDF)."""
+    if not get_current_user(request):
+        return HTMLResponse("<h1>Unauthorized</h1>", status_code=401)
+
+    meta_res = await db.execute(select(DeviceMeta).where(DeviceMeta.device_id == device_group_id))
+    dev = meta_res.scalar_one_or_none()
+    dev_name = dev.name if dev else device_group_id
+
+    folders_res = await db.execute(
+        select(Folder).where(Folder.device_group_id == device_group_id).order_by(Folder.sort_order)
+    )
+    folders = folders_res.scalars().all()
+    fid_map = {f.id: f for f in folders}
+
+    rules_res = await db.execute(
+        select(CachedRule)
+        .where(CachedRule.folder_id.in_(list(fid_map.keys())))
+        .order_by(CachedRule.folder_id, CachedRule.folder_sort_order)
+    )
+    rules = rules_res.scalars().all()
+
+    name_map: Dict[str, str] = {k: v for k, v in GLOBAL_NAME_MAP.items()}
+    if not name_map:
+        nm_res = await db.execute(select(CachedObject.ext_id, CachedObject.name))
+        for row in nm_res:
+            name_map[row[0]] = row[1]
+
+    def _resolve(field: Optional[Dict]) -> str:
+        if not field:
+            return "ANY"
+        kind = str(field.get("kind", ""))
+        if "ANY" in kind:
+            return "ANY"
+        objects = field.get("objects", [])
+        if isinstance(objects, dict):
+            ids = objects.get("array", [])
+        elif isinstance(objects, list):
+            ids = []
+            for o in objects:
+                if isinstance(o, dict):
+                    ids.append(o.get("id", ""))
+                elif isinstance(o, str):
+                    ids.append(o)
+        else:
+            ids = []
+        names = [name_map.get(i, i[:8] + "…") for i in ids if i]
+        return ", ".join(names) if names else "ANY"
+
+    ACTION_COLOR = {
+        "SECURITY_RULE_ACTION_ALLOW": "#16a34a",
+        "SECURITY_RULE_ACTION_DENY":  "#dc2626",
+        "SECURITY_RULE_ACTION_DROP":  "#d97706",
+    }
+
+    rows_by_folder: Dict[str, list] = {}
+    for r in rules:
+        rows_by_folder.setdefault(r.folder_id, []).append(r)
+
+    # Build HTML
+    sections_html = []
+    for folder in folders:
+        folder_rules = rows_by_folder.get(folder.id, [])
+        if not folder_rules:
+            continue
+        row_rows = []
+        for i, r in enumerate(folder_rules, 1):
+            d = r.data or {}
+            action = d.get("action", "")
+            color  = ACTION_COLOR.get(action, "#6b7280")
+            action_lbl = action.replace("SECURITY_RULE_ACTION_", "")
+            enabled_lbl = "" if d.get("enabled", True) else " ⛔"
+            row_rows.append(f"""
+            <tr class="{'disabled-row' if not d.get('enabled', True) else ''}">
+                <td>{i}</td>
+                <td><b>{r.name}{enabled_lbl}</b></td>
+                <td style="color:{color};font-weight:700">{action_lbl}</td>
+                <td>{_resolve(d.get('sourceZone'))}</td>
+                <td>{_resolve(d.get('destinationZone'))}</td>
+                <td>{_resolve(d.get('sourceAddr'))}</td>
+                <td>{_resolve(d.get('destinationAddr'))}</td>
+                <td>{_resolve(d.get('service'))}</td>
+                <td style="color:#6b7280;font-size:11px">{d.get('description','')[:60]}</td>
+            </tr>""")
+
+        sections_html.append(f"""
+        <div class="folder-block">
+            <div class="folder-title">{folder.name}
+                <span class="folder-sec">{folder.section or ''}</span>
+                <span class="folder-cnt">{len(folder_rules)} rules</span>
+            </div>
+            <table>
+                <thead><tr>
+                    <th>#</th><th>Name</th><th>Action</th>
+                    <th>Src Zone</th><th>Dst Zone</th>
+                    <th>Src Addr</th><th>Dst Addr</th>
+                    <th>Service</th><th>Description</th>
+                </tr></thead>
+                <tbody>{''.join(row_rows)}</tbody>
+            </table>
+        </div>""")
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Policy Report — {dev_name}</title>
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 20px; }}
+  h1 {{ font-size: 18px; margin-bottom: 4px; }}
+  .meta {{ color: #555; font-size: 11px; margin-bottom: 20px; }}
+  .folder-block {{ margin-bottom: 24px; page-break-inside: avoid; }}
+  .folder-title {{ font-size: 14px; font-weight: 700; background: #f1f5f9; padding: 6px 10px;
+                   border-left: 4px solid #3b82f6; margin-bottom: 0; }}
+  .folder-sec {{ font-size: 10px; font-weight: 400; color: #64748b; margin-left: 8px; text-transform: uppercase; }}
+  .folder-cnt {{ font-size: 10px; color: #94a3b8; float: right; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
+  th {{ background: #e2e8f0; padding: 5px 6px; text-align: left; font-size: 10px;
+        text-transform: uppercase; letter-spacing: .04em; color: #475569; border: 1px solid #cbd5e1; }}
+  td {{ padding: 4px 6px; border: 1px solid #e2e8f0; vertical-align: top; }}
+  tr:nth-child(even) td {{ background: #f8fafc; }}
+  .disabled-row td {{ opacity: .5; }}
+  .print-btn {{ position: fixed; top: 12px; right: 12px; padding: 8px 18px;
+                background: #3b82f6; color: #fff; border: none; border-radius: 6px;
+                font-size: 13px; font-weight: 700; cursor: pointer; }}
+  @media print {{
+    .print-btn {{ display: none; }}
+    body {{ margin: 0; }}
+  }}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨 Print / Save PDF</button>
+<h1>Security Policy — {dev_name}</h1>
+<div class="meta">Generated: {now} &nbsp;|&nbsp; Device group: {device_group_id} &nbsp;|&nbsp; Total folders: {len(folders)}</div>
+{''.join(sections_html)}
+</body>
+</html>"""
+
+    return HTMLResponse(html)
 
 
 # ---------------------------------------------------------------------------
