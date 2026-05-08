@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% block title %}{{ t('page_analyzer') }} — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    <div class="app-main">
+
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-magnifying-glass-chart" style="color:#8b5cf6;margin-right:6px"></i>
+                {{ t('page_analyzer') }}
+            </span>
+            <div class="topbar-sep"></div>
+            <a href="/" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-layer-group"></i> {{ t('topbar_rules') }}
+            </a>
+            <a href="/policy" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-shield-virus"></i> {{ t('topbar_policy') }}
+            </a>
+        </div>
+
+        <div class="app-content" style="padding:20px">
+
+            {# ── СУ selector ── #}
+            {% if su_list and su_list|length > 1 %}
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+                <span style="color:#475569;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">
+                    <i class="fas fa-server" style="margin-right:4px"></i>СУ:
+                </span>
+                {% for su in su_list %}
+                {% set is_active = (selected_su_id == su.id) %}
+                <a href="/analyzer?su_id={{ su.id }}"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:5px 13px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;transition:.15s;
+                          {% if is_active %}background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.4)
+                          {% else %}background:rgba(255,255,255,.04);color:#64748b;border:1px solid rgba(255,255,255,.08){% endif %}"
+                   onmouseover="if(!{{ is_active|lower }})this.style.borderColor='rgba(59,130,246,.25)'"
+                   onmouseout="if(!{{ is_active|lower }})this.style.borderColor='rgba(255,255,255,.08)'">
+                    <i class="fas fa-circle" style="font-size:6px;color:{% if is_active %}#3b82f6{% else %}#334155{% endif %}"></i>
+                    {{ su.name }}
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {# ---- Info bar ---- #}
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px;
+                        background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 16px">
+
+                {# Auto-analysis status #}
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
+                    <i class="fas fa-circle-check" style="color:#22c55e;font-size:13px"></i>
+                    <span style="font-size:12px;color:#94a3b8;font-weight:600">{{ t('lbl_auto_analyzed') }}</span>
+                    <span id="lblLastRun" style="font-size:11px;color:#475569;font-style:italic">—</span>
+                </div>
+
+                {# Per-device filter (optional) #}
+                <div style="display:flex;align-items:center;gap:8px">
+                    <label style="color:#94a3b8;font-size:11px;white-space:nowrap;font-weight:600">{{ t('lbl_device') }}</label>
+                    <select id="selDevice" class="form-select form-select-sm"
+                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:12px;width:180px"
+                            onchange="onDeviceChange()">
+                        <option value="">{{ t('lbl_all_devices') }}</option>
+                        {% for d in devices %}
+                        <option value="{{ d.device_id }}">{{ d.name or d.device_id }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="selFolder" class="form-select form-select-sm"
+                            style="background:#0f172a;border-color:rgba(255,255,255,.1);color:#e2e8f0;font-size:12px;width:160px"
+                            disabled>
+                        <option value="">{{ t('lbl_all_folders') }}</option>
+                    </select>
+                    <button id="btnRun"
+                            style="background:rgba(124,58,237,.2);color:#a78bfa;border:1px solid rgba(124,58,237,.3);padding:4px 14px;border-radius:6px;font-weight:600;font-size:11px;cursor:pointer;transition:.15s"
+                            onclick="runAnalysis()" disabled
+                            title="{{ t('btn_analyze') }}">
+                        <i class="fas fa-filter"></i> {{ t('btn_analyze') }}
+                    </button>
+                    <button style="background:rgba(59,130,246,.1);color:#60a5fa;border:1px solid rgba(59,130,246,.2);padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;transition:.15s"
+                            onclick="loadCached()" title="{{ t('btn_refresh') }}">
+                        <i class="fas fa-rotate"></i>
+                    </button>
+                </div>
+            </div>
+
+            {# ---- Summary cards ---- #}
+            <div id="summaryRow" style="display:none;gap:12px;flex-wrap:wrap;margin-bottom:20px" class="d-flex">
+                <div class="stat-card">
+                    <div class="stat-val" id="statTotal">—</div>
+                    <div class="stat-label">{{ t('lbl_total_rules') }}</div>
+                </div>
+                <div class="stat-card" style="border-color:rgba(239,68,68,.3)">
+                    <div class="stat-val" style="color:#ef4444" id="statIssues">—</div>
+                    <div class="stat-label">{{ t('lbl_issues_found') }}</div>
+                </div>
+                <div class="stat-card" style="cursor:pointer" onclick="scrollToSection('secDisabled')" title="Перейти к отключённым">
+                    <div class="stat-val" style="color:#64748b" id="statDisabled">—</div>
+                    <div class="stat-label">{{ t('lbl_disabled') }}</div>
+                </div>
+                <div class="stat-card" style="cursor:pointer" onclick="scrollToSection('secBroad')" title="Перейти к широким">
+                    <div class="stat-val" style="color:#f59e0b" id="statBroad">—</div>
+                    <div class="stat-label">{{ t('lbl_too_broad') }}</div>
+                </div>
+                <div class="stat-card" style="cursor:pointer" onclick="scrollToSection('secShadow')" title="Перейти к перекрытым">
+                    <div class="stat-val" style="color:#ef4444" id="statShadow">—</div>
+                    <div class="stat-label">{{ t('lbl_shadowed') }}</div>
+                </div>
+                <div class="stat-card" style="cursor:pointer" onclick="scrollToSection('secRedundant')" title="Перейти к избыточным">
+                    <div class="stat-val" style="color:#8b5cf6" id="statRedundant">—</div>
+                    <div class="stat-label">{{ t('lbl_redundant') }}</div>
+                </div>
+            </div>
+
+            {# ---- Spinner ---- #}
+            <div id="spinner" style="display:none;text-align:center;padding:60px;color:#475569">
+                <i class="fas fa-circle-notch fa-spin" style="font-size:28px;margin-bottom:10px;display:block"></i>
+                {{ t('lbl_analyzing') }}
+            </div>
+
+            {# ---- Results sections ---- #}
+            <div id="resultsArea" style="display:none">
+
+                {# Disabled #}
+                <div id="secDisabled" class="analysis-section" style="border-left-color:#64748b;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-ban" style="color:#64748b"></i>
+                        <span>{{ t('sec_disabled_title') }}</span>
+                        <span class="as-count" id="cntDisabled">0</span>
+                    </div>
+                    <div class="as-desc">{{ t('sec_disabled_desc') | safe }}</div>
+                    <table class="issue-table">
+                        <thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_folder') }}</th><th>{{ t('col_device') }}</th><th></th></tr></thead>
+                        <tbody id="tbDisabled"></tbody>
+                    </table>
+                </div>
+
+                {# Too broad #}
+                <div id="secBroad" class="analysis-section" style="border-left-color:#f59e0b;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-expand" style="color:#f59e0b"></i>
+                        <span>{{ t('sec_broad_title') }}</span>
+                        <span class="as-count" style="background:rgba(245,158,11,.15);color:#f59e0b" id="cntBroad">0</span>
+                    </div>
+                    <div class="as-desc">{{ t('sec_broad_desc') | safe }}</div>
+                    <table class="issue-table">
+                        <thead><tr><th>{{ t('col_name') }}</th><th>{{ t('col_folder') }}</th><th>{{ t('col_device') }}</th><th></th></tr></thead>
+                        <tbody id="tbBroad"></tbody>
+                    </table>
+                </div>
+
+                {# Shadowed #}
+                <div id="secShadow" class="analysis-section" style="border-left-color:#ef4444;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-layer-group" style="color:#ef4444"></i>
+                        <span>{{ t('sec_shadow_title') }}</span>
+                        <span class="as-count" style="background:rgba(239,68,68,.15);color:#ef4444" id="cntShadow">0</span>
+                    </div>
+                    <div class="as-desc">{{ t('sec_shadow_desc') }}</div>
+                    <div style="font-size:11px;color:#64748b;margin-bottom:6px;display:flex;align-items:center;gap:12px">
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ef4444;margin-right:4px"></span>Перекрытое правило</span>
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3b82f6;margin-right:4px"></span>Перекрывающее правило</span>
+                        <span style="color:#475569"><i class="fas fa-arrow-pointer" style="margin-right:3px"></i>Кликните на правило чтобы перейти к нему</span>
+                    </div>
+                    <table class="issue-table">
+                        <thead><tr><th>{{ t('col_rule') }}</th><th>{{ t('col_shadowed_by') }}</th><th>{{ t('col_reason') }}</th><th>{{ t('col_folder') }}</th><th></th></tr></thead>
+                        <tbody id="tbShadow"></tbody>
+                    </table>
+                </div>
+
+                {# Redundant #}
+                <div id="secRedundant" class="analysis-section" style="border-left-color:#8b5cf6;display:none">
+                    <div class="as-header">
+                        <i class="fas fa-copy" style="color:#8b5cf6"></i>
+                        <span>{{ t('sec_redundant_title') }}</span>
+                        <span class="as-count" style="background:rgba(139,92,246,.15);color:#8b5cf6" id="cntRedundant">0</span>
+                    </div>
+                    <div class="as-desc">{{ t('sec_redundant_desc') }}</div>
+                    <table class="issue-table">
+                        <thead><tr><th>{{ t('col_rule_a') }}</th><th>{{ t('col_rule_b') }}</th><th>{{ t('col_reason') }}</th><th>{{ t('col_folder') }}</th><th></th></tr></thead>
+                        <tbody id="tbRedundant"></tbody>
+                    </table>
+                </div>
+
+                {# All clear #}
+                <div id="allClear" style="display:none;text-align:center;padding:60px 0;color:#22c55e">
+                    <i class="fas fa-circle-check" style="font-size:40px;display:block;margin-bottom:12px"></i>
+                    <div style="font-size:18px;font-weight:700">{{ t('lbl_no_issues') }}</div>
+                    <div style="font-size:13px;color:#475569;margin-top:4px">{{ t('lbl_all_clean') }}</div>
+                </div>
+
+            </div>{# /resultsArea #}
+
+        </div>{# /app-content #}
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+<style>
+.stat-card {
+    background:#1e293b;
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:10px;
+    padding:14px 20px;
+    min-width:110px;
+    text-align:center;
+    flex:1;
+}
+.stat-val { font-size:26px;font-weight:800;line-height:1 }
+.stat-label { font-size:11px;color:#64748b;font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:.04em }
+
+.analysis-section {
+    background:#1e293b;
+    border:1px solid rgba(255,255,255,.06);
+    border-left:3px solid #3b82f6;
+    border-radius:10px;
+    padding:16px 20px;
+    margin-bottom:16px;
+}
+.as-header {
+    display:flex;align-items:center;gap:8px;
+    font-size:14px;font-weight:700;color:#e2e8f0;
+    margin-bottom:6px;
+}
+.as-count {
+    margin-left:auto;
+    background:rgba(100,116,139,.15);color:#94a3b8;
+    border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;
+}
+.as-desc { font-size:12px;color:#64748b;margin-bottom:12px }
+
+.issue-table { width:100%;border-collapse:collapse;font-size:12px }
+.issue-table th {
+    text-align:left;padding:6px 8px;
+    color:#64748b;font-weight:600;font-size:11px;text-transform:uppercase;
+    border-bottom:1px solid rgba(255,255,255,.06)
+}
+.issue-table td {
+    padding:7px 8px;
+    border-bottom:1px solid rgba(255,255,255,.04);
+    color:#cbd5e1;vertical-align:middle
+}
+.issue-table tr:last-child td { border-bottom:none }
+.issue-table tr:hover td { background:rgba(255,255,255,.03) }
+
+.rule-link {
+    color:#60a5fa;text-decoration:none;font-weight:600;
+}
+.rule-link:hover { color:#93c5fd;text-decoration:underline }
+
+.tag-rule {
+    display:inline-block;background:rgba(59,130,246,.15);color:#60a5fa;
+    border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;white-space:nowrap
+}
+.tag-shadow { background:rgba(239,68,68,.12);color:#fca5a5 }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TREE = {{ js_tree | tojson }};
+let _lastResult = null;
+
+// Auto-load cached analysis on page open
+document.addEventListener('DOMContentLoaded', loadCached);
+
+async function loadCached() {
+    document.getElementById('summaryRow').style.display = 'none';
+    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+
+    try {
+        const resp = await fetch('/api/v1/analyzer/cached');
+        const data = await resp.json();
+        if (data.status === 'no_data') {
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('resultsArea').style.display = '';
+            document.getElementById('allClear').style.display = '';
+            document.getElementById('allClear').innerHTML =
+                '<i class="fas fa-rotate" style="font-size:36px;opacity:.3;display:block;margin-bottom:12px"></i>' +
+                '<div style="font-size:15px;font-weight:700;color:#475569">{{ t("lbl_no_sync_yet") }}</div>' +
+                '<div style="font-size:12px;color:#334155;margin-top:4px">{{ t("lbl_sync_to_analyze") }}</div>';
+            return;
+        }
+        _lastResult = data;
+        document.getElementById('lblLastRun').textContent = data.analyzed_at || '';
+        renderResults(data);
+    } catch(e) {
+        showToast('Error loading analysis: ' + e, 'danger');
+    } finally {
+        document.getElementById('spinner').style.display = 'none';
+    }
+}
+
+function onDeviceChange() {
+    const devId = document.getElementById('selDevice').value;
+    const selFolder = document.getElementById('selFolder');
+    const btnRun = document.getElementById('btnRun');
+
+    selFolder.innerHTML = '<option value="">{{ t("lbl_all_folders") }}</option>';
+    selFolder.disabled = true;
+    btnRun.disabled = !devId;
+
+    if (!devId) {
+        // Reset to full cached result
+        if (_lastResult) renderResults(_lastResult);
+        return;
+    }
+    if (!TREE[devId]) return;
+
+    const sections = TREE[devId].sections;
+    ['pre','default','post'].forEach(sec => {
+        if (!sections[sec]) return;
+        sections[sec].forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.id;
+            opt.textContent = `[${sec.toUpperCase()}] ${f.name}`;
+            selFolder.appendChild(opt);
+        });
+    });
+    selFolder.disabled = false;
+    btnRun.disabled = false;
+}
+
+async function runAnalysis() {
+    const devId = document.getElementById('selDevice').value;
+    const folderId = document.getElementById('selFolder').value;
+    if (!devId) return;
+
+    document.getElementById('summaryRow').style.display = 'none';
+    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+
+    try {
+        const resp = await fetch('/api/v1/analyzer/run', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({device_group_id: devId, folder_id: folderId || null})
+        });
+        const data = await resp.json();
+        renderResults(data);
+    } catch(e) {
+        showToast('Error: ' + e, 'danger');
+    } finally {
+        document.getElementById('spinner').style.display = 'none';
+    }
+}
+
+function renderResults(data) {
+    document.getElementById('statTotal').textContent    = data.total_rules ?? '—';
+    document.getElementById('statIssues').textContent   = data.total_issues ?? '—';
+    document.getElementById('statDisabled').textContent = data.disabled?.length ?? 0;
+    document.getElementById('statBroad').textContent    = data.too_broad?.length ?? 0;
+    document.getElementById('statShadow').textContent   = data.shadowed?.length ?? 0;
+    document.getElementById('statRedundant').textContent= data.redundant?.length ?? 0;
+    document.getElementById('summaryRow').style.display = '';
+    document.getElementById('resultsArea').style.display = '';
+
+    const devId = document.getElementById('selDevice').value;
+
+    renderDisabled(data.disabled || []);
+    renderBroad(data.too_broad || []);
+    renderShadowed(data.shadowed || [], devId);
+    renderRedundant(data.redundant || []);
+
+    document.getElementById('allClear').style.display =
+        (data.total_issues === 0) ? '' : 'none';
+}
+
+function ruleLink(name, extId, devId) {
+    const href = extId ? `/policy?hl=${encodeURIComponent(extId)}` : '#';
+    return `<a class="rule-link" href="${href}" title="Перейти к правилу">${escHtml(name)}</a>`;
+}
+
+function scrollToSection(id) {
+    const el = document.getElementById(id);
+    if (el && el.style.display !== 'none') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function folderBadge(name) {
+    return name ? `<span style="font-size:11px;color:#475569">${escHtml(name)}</span>` : '';
+}
+
+function _goBtn(extId, folderId) {
+    if (!extId) return '';
+    const url = folderId
+        ? `/?folder_id=${encodeURIComponent(folderId)}&hl=${encodeURIComponent(extId)}`
+        : `/?hl=${encodeURIComponent(extId)}`;
+    return `<a href="${url}" title="Перейти к правилу"
+               style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#60a5fa;text-decoration:none;
+                      padding:2px 8px;border-radius:5px;border:1px solid rgba(96,165,250,.3);background:rgba(59,130,246,.08);
+                      white-space:nowrap" target="_self">
+        <i class="fas fa-arrow-right"></i> Открыть
+    </a>`;
+}
+
+function renderDisabled(rows) {
+    const sec = document.getElementById('secDisabled');
+    document.getElementById('cntDisabled').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('tbDisabled').innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-rule">${escHtml(r.name)}</span></td>
+            <td>${folderBadge(r.folder)}</td>
+            <td><span style="font-size:11px;color:#475569">${escHtml(r.device)}</span></td>
+            <td>${_goBtn(r.ext_id, r.folder_id)}</td>
+        </tr>`).join('');
+}
+
+function renderBroad(rows) {
+    const sec = document.getElementById('secBroad');
+    document.getElementById('cntBroad').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('tbBroad').innerHTML = rows.map(r => `
+        <tr>
+            <td><span class="tag-rule" style="background:rgba(245,158,11,.15);color:#fcd34d">${escHtml(r.name)}</span></td>
+            <td>${folderBadge(r.folder)}</td>
+            <td><span style="font-size:11px;color:#475569">${escHtml(r.device)}</span></td>
+            <td>${_goBtn(r.ext_id, r.folder_id)}</td>
+        </tr>`).join('');
+}
+
+function _shadowUrl(shadowingExtId, shadowedExtId, jumpTo, folderId) {
+    const base = folderId ? `/?folder_id=${encodeURIComponent(folderId)}` : '/';
+    return `${base}&hl_shadow=${encodeURIComponent(shadowingExtId)}&hl_shadowed=${encodeURIComponent(shadowedExtId)}&hl_primary=${jumpTo}`;
+}
+
+function renderShadowed(rows, devId) {
+    const sec = document.getElementById('secShadow');
+    document.getElementById('cntShadow').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('tbShadow').innerHTML = rows.map(r => {
+        // Clicking shadowed rule → jump to it (red), shadowing shown blue
+        const urlShadowed  = _shadowUrl(r.shadowed_by_ext_id, r.ext_id, 'shadowed', r.folder_id);
+        // Clicking shadowing rule → jump to it (blue), shadowed shown red
+        const urlShadowing = _shadowUrl(r.shadowed_by_ext_id, r.ext_id, 'shadow', r.shadowed_by_folder_id);
+
+        return `<tr>
+            <td>
+                <a href="${urlShadowed}" title="Перейти к перекрытому правилу" style="text-decoration:none">
+                    <span class="tag-rule tag-shadow" style="cursor:pointer">${escHtml(r.name)}</span>
+                </a>
+            </td>
+            <td>
+                <a href="${urlShadowing}" title="Перейти к перекрывающему правилу" style="text-decoration:none">
+                    <span class="tag-rule" style="background:rgba(59,130,246,.12);color:#93c5fd;cursor:pointer">${escHtml(r.shadowed_by)}</span>
+                </a>
+            </td>
+            <td style="max-width:260px;font-size:11px;color:#64748b">${escHtml(r.reason)}</td>
+            <td>${folderBadge(r.folder)}</td>
+            <td></td>
+        </tr>`;
+    }).join('');
+}
+
+function renderRedundant(rows) {
+    const sec = document.getElementById('secRedundant');
+    document.getElementById('cntRedundant').textContent = rows.length;
+    if (!rows.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('tbRedundant').innerHTML = rows.map(r => {
+      const urlA = r.folder_id ? `/?folder_id=${encodeURIComponent(r.folder_id)}&hl=${encodeURIComponent(r.ext_id)}` : `/?hl=${encodeURIComponent(r.ext_id)}`;
+      const urlB = r.folder_id ? `/?folder_id=${encodeURIComponent(r.folder_id)}&hl=${encodeURIComponent(r.pair_ext_id||'')}` : `/?hl=${encodeURIComponent(r.pair_ext_id||'')}`;
+      return `<tr>
+            <td>
+                <a href="${urlA}" title="Перейти к правилу" style="text-decoration:none">
+                    <span class="tag-rule" style="background:rgba(139,92,246,.12);color:#c4b5fd;cursor:pointer">${escHtml(r.name)}</span>
+                </a>
+            </td>
+            <td>
+                <a href="${urlB}" title="Перейти к правилу" style="text-decoration:none">
+                    <span class="tag-rule" style="background:rgba(139,92,246,.12);color:#c4b5fd;cursor:pointer">${escHtml(r.pair_name)}</span>
+                </a>
+            </td>
+            <td style="font-size:11px;color:#64748b">${escHtml(r.reason)}</td>
+            <td>${folderBadge(r.folder)}</td>
+            <td></td>
+        </tr>`;
+    }).join('');
+}
+
+function showToast(msg, type='success') {
+    const stack = document.getElementById('toastStack');
+    const t = document.createElement('div');
+    t.className = `toast-item toast-${type}`;
+    t.innerHTML = `<span>${msg}</span>`;
+    stack.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+}
+</script>
+{% endblock %}

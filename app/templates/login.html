@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign In — NGFW Manager</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            background: #0a0f1e;
+            background-image:
+                radial-gradient(ellipse at 20% 50%, rgba(29,78,216,.15) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 20%, rgba(139,92,246,.1) 0%, transparent 50%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .shell {
+            display: flex; width: 100%; max-width: 900px; min-height: 560px;
+            border-radius: 20px; overflow: hidden;
+            box-shadow: 0 32px 80px rgba(0,0,0,.6);
+            margin: 20px;
+        }
+        /* Left panel */
+        .brand {
+            flex: 1;
+            background: linear-gradient(145deg, #1d4ed8 0%, #1e3a8a 60%, #0f172a 100%);
+            padding: 48px 40px;
+            display: flex; flex-direction: column;
+            position: relative; overflow: hidden;
+        }
+        .brand::before {
+            content: ''; position: absolute; top: -60px; right: -60px;
+            width: 260px; height: 260px; background: rgba(255,255,255,.04); border-radius: 50%;
+        }
+        .brand::after {
+            content: ''; position: absolute; bottom: -80px; left: -40px;
+            width: 300px; height: 300px; background: rgba(255,255,255,.03); border-radius: 50%;
+        }
+        .brand-logo {
+            width: 60px; height: 60px;
+            background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+            border-radius: 16px; display: flex; align-items: center; justify-content: center;
+            font-size: 26px; color: #fff; margin-bottom: 24px;
+        }
+        .brand-title { font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 8px; }
+        .brand-sub { font-size: 13px; color: rgba(255,255,255,.55); margin-bottom: 40px; line-height: 1.5; }
+        .brand-feats { display: flex; flex-direction: column; gap: 14px; }
+        .brand-feat { display: flex; align-items: center; gap: 12px; color: rgba(255,255,255,.75); font-size: 13px; }
+        .brand-feat i {
+            width: 28px; height: 28px; background: rgba(255,255,255,.1); border-radius: 7px;
+            display: flex; align-items: center; justify-content: center; font-size: 12px; color: #93c5fd; flex-shrink: 0;
+        }
+        .brand-version { margin-top: auto; font-size: 11px; color: rgba(255,255,255,.3); font-weight: 600; letter-spacing: .5px; }
+        /* Right panel */
+        .form-panel {
+            width: 380px; background: #111827;
+            display: flex; align-items: center; justify-content: center;
+            padding: 40px 36px; flex-shrink: 0;
+        }
+        .form-inner { width: 100%; }
+        .form-title { font-size: 22px; font-weight: 800; color: #f1f5f9; margin-bottom: 4px; }
+        .form-sub { font-size: 12px; color: #475569; margin-bottom: 28px; }
+        /* Mode toggle */
+        .mode-toggle {
+            display: flex; gap: 6px; margin-bottom: 24px;
+            background: #1e293b; border-radius: 10px; padding: 4px;
+        }
+        .mode-btn {
+            flex: 1; padding: 8px 10px; border: none; border-radius: 7px;
+            background: transparent; color: #475569;
+            font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .mode-btn.active { background: #1d4ed8; color: #fff; box-shadow: 0 2px 8px rgba(29,78,216,.4); }
+        .mode-btn:not(.active):hover { color: #94a3b8; }
+        /* Fields */
+        .field-wrap { margin-bottom: 16px; }
+        .field-label {
+            display: block; font-size: 11px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .5px; color: #475569; margin-bottom: 6px;
+        }
+        .field-label i { margin-right: 4px; }
+        .field-input {
+            width: 100%; padding: 10px 14px;
+            background: #1e293b; border: 1px solid #334155;
+            border-radius: 8px; color: #e2e8f0; font-size: 13px;
+            outline: none; transition: border-color .15s, box-shadow .15s;
+        }
+        .field-input::placeholder { color: #334155; }
+        .field-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+        .btn-login {
+            width: 100%; padding: 11px; margin-top: 6px;
+            background: linear-gradient(135deg, #1d4ed8, #3b82f6);
+            color: #fff; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn-login:hover { opacity: .9; }
+        .error-box {
+            padding: 10px 14px; margin-bottom: 14px;
+            background: rgba(239,68,68,.1); color: #f87171;
+            border: 1px solid rgba(239,68,68,.2); border-radius: 8px;
+            font-size: 12px; display: flex; align-items: center; gap: 8px;
+        }
+        @media (max-width: 640px) {
+            .brand { display: none; }
+            .form-panel { width: 100%; }
+            .shell { max-width: 100%; margin: 0; border-radius: 0; min-height: 100vh; }
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <!-- Left branding panel -->
+    <div class="brand">
+        <div class="brand-logo"><i class="fas fa-shield-halved"></i></div>
+        <div class="brand-title">NGFW Manager</div>
+        <div class="brand-sub">Next-Generation Firewall Policy Management</div>
+        <div class="brand-feats">
+            <div class="brand-feat"><i class="fas fa-layer-group"></i><span>Security Policy Editor</span></div>
+            <div class="brand-feat"><i class="fas fa-arrows-left-right"></i><span>NAT Rule Management</span></div>
+            <div class="brand-feat"><i class="fas fa-magnifying-glass-chart"></i><span>Policy Analyzer</span></div>
+            <div class="brand-feat"><i class="fas fa-clock-rotate-left"></i><span>Change Audit Log</span></div>
+        </div>
+        <div class="brand-version">v2.0</div>
+    </div>
+
+    <!-- Right form panel -->
+    <div class="form-panel">
+        <div class="form-inner">
+            <div class="form-title">Sign In</div>
+            <div class="form-sub">Access the management console</div>
+
+            <div class="mode-toggle">
+                <button class="mode-btn active" id="btn-full" onclick="setMode(false)" type="button">
+                    <i class="fas fa-unlock-keyhole"></i> Full Access
+                </button>
+                <button class="mode-btn" id="btn-ro" onclick="setMode(true)" type="button">
+                    <i class="fas fa-eye"></i> Read Only
+                </button>
+            </div>
+
+            {% if error %}
+            <div class="error-box"><i class="fas fa-exclamation-circle"></i> {{ error }}</div>
+            {% endif %}
+
+            <form action="/login" method="POST">
+                <input type="hidden" name="ro" id="ro-field" value="0">
+                <div class="field-wrap" id="host-wrap">
+                    <label class="field-label"><i class="fas fa-server"></i> NGFW Host</label>
+                    <input type="text" name="host" id="host-input" class="field-input" placeholder="192.168.1.1 or host:port" required autocomplete="url">
+                </div>
+                <div id="ro-hint" style="display:none;margin-bottom:16px;padding:10px 14px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;font-size:12px;color:#93c5fd">
+                    <i class="fas fa-circle-info" style="margin-right:6px"></i>
+                    Credentials will be checked against all configured systems
+                </div>
+                <div class="field-wrap">
+                    <label class="field-label"><i class="fas fa-user"></i> Username</label>
+                    <input type="text" name="username" class="field-input" placeholder="Enter username" required autocomplete="username">
+                </div>
+                <div class="field-wrap">
+                    <label class="field-label"><i class="fas fa-lock"></i> Password</label>
+                    <input type="password" name="password" class="field-input" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn-login">
+                    <i class="fas fa-right-to-bracket"></i> Sign In
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+function setMode(ro) {
+    document.getElementById('ro-field').value = ro ? '1' : '0';
+    document.getElementById('btn-full').classList.toggle('active', !ro);
+    document.getElementById('btn-ro').classList.toggle('active', ro);
+    const hostWrap = document.getElementById('host-wrap');
+    const hostInput = document.getElementById('host-input');
+    const roHint = document.getElementById('ro-hint');
+    hostWrap.style.display = ro ? 'none' : '';
+    hostInput.required = !ro;
+    roHint.style.display = ro ? '' : 'none';
+}
+</script>
+</body>
+</html>

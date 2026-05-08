@@ -1,0 +1,3 @@
+VERSION = "2.0"
+VERSION_SHORT = "2.0"
+RELEASE_CHANNEL = "release"

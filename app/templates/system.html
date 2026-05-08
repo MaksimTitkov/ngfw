@@ -1,0 +1,1068 @@
+{% extends "base.html" %}
+{% block title %}System — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    {# ===== MAIN ===== #}
+    <div class="app-main">
+
+        {# Topbar #}
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-server" style="color:#3b82f6;margin-right:6px"></i>
+                System Management
+            </span>
+            <div class="topbar-sep"></div>
+
+            {# СУ selector #}
+            {% if su_list and su_list|length > 1 %}
+            <div style="display:flex;gap:4px;margin-right:8px">
+                {% for su in su_list %}
+                <a href="/system?su_id={{ su.id }}&tab={{ active_tab }}"
+                   style="padding:3px 10px;border-radius:5px;border:1px solid {% if su.id == selected_su_id %}rgba(59,130,246,.5){% else %}#e2e8f0{% endif %};
+                          background:{% if su.id == selected_su_id %}rgba(59,130,246,.1){% else %}#fff{% endif %};
+                          color:{% if su.id == selected_su_id %}#1d4ed8{% else %}#64748b{% endif %};
+                          font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">
+                    <i class="fas fa-circle" style="font-size:7px;color:{% if su.is_active %}#22c55e{% else %}#ef4444{% endif %};margin-right:4px"></i>{{ su.name or su.host }}
+                </a>
+                {% endfor %}
+            </div>
+            <div class="topbar-sep"></div>
+            {% endif %}
+
+            {# Tabs #}
+            <div style="display:flex;gap:4px">
+                {% for tid, tlbl, ticon in [
+                    ('connections','Connections','fa-plug'),
+                    ('backup','Backup','fa-database'),
+                    ('interfaces','Interfaces','fa-network-wired'),
+                    ('settings','Settings','fa-sliders'),
+                    ('scheduler','Scheduler','fa-clock')
+                ] %}
+                <button id="tab_{{ tid }}" onclick="setTab('{{ tid }}')"
+                        style="padding:4px 11px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:.15s"
+                        class="sys-tab {{ 'sys-tab-active' if tid == active_tab else '' }}">
+                    <i class="fas {{ ticon }} me-1"></i>{{ tlbl }}
+                </button>
+                {% endfor %}
+            </div>
+
+            <div class="topbar-sep"></div>
+
+            <button id="btnRefresh" onclick="loadTab()"
+                    style="padding:5px 10px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#374151;font-size:12px;font-weight:600;cursor:pointer">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+
+        {# Tab content area #}
+        <div style="flex:1;overflow:auto;padding:20px" id="mainContent">
+            <div style="text-align:center;padding:60px;color:#94a3b8">
+                <i class="fas fa-spinner fa-spin" style="font-size:24px"></i>
+            </div>
+        </div>
+
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+
+{# ===== MODALS ===== #}
+
+{# Create Admin modal #}
+<div class="modal fade" id="adminModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+            <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:16px 20px">
+                <h5 class="modal-title" style="font-weight:700;font-size:15px">Create Admin</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" style="font-size:12px">Login *</label>
+                    <input type="text" id="adminLogin" class="form-control form-control-sm" placeholder="admin_user">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" style="font-size:12px">Name</label>
+                    <input type="text" id="adminName" class="form-control form-control-sm" placeholder="Full Name">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" style="font-size:12px">Password *</label>
+                    <input type="password" id="adminPassword" class="form-control form-control-sm">
+                </div>
+                <div class="mb-1">
+                    <label class="form-label fw-semibold" style="font-size:12px">Role</label>
+                    <select id="adminRole" class="form-select form-select-sm">
+                        <option value="SuperAdmin">Super Admin</option>
+                        <option value="Admin">Admin</option>
+                        <option value="ReadOnly" selected>Read Only</option>
+                        <option value="Auditor">Auditor</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #f1f5f9;padding:12px 20px">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitAdmin()" style="font-weight:600">
+                    <i class="fas fa-plus me-1"></i>Create
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Change Password modal #}
+<div class="modal fade" id="pwModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+            <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:16px 20px">
+                <h5 class="modal-title" style="font-weight:700;font-size:15px">Change Password</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+                <input type="hidden" id="pwAdminId">
+                <label class="form-label fw-semibold" style="font-size:12px">New Password *</label>
+                <input type="password" id="pwNew" class="form-control form-control-sm">
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #f1f5f9;padding:12px 20px">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning btn-sm" onclick="submitPassword()" style="font-weight:600">
+                    Save Password
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Add Route modal #}
+<div class="modal fade" id="routeModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+            <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:16px 20px">
+                <h5 class="modal-title" style="font-weight:700;font-size:15px">Add Static Route</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+                <div class="row g-3 mb-3">
+                    <div class="col-8">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination *</label>
+                        <input type="text" id="rDest" class="form-control form-control-sm" placeholder="192.168.0.0">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold" style="font-size:12px">Prefix Len *</label>
+                        <input type="number" id="rPrefix" class="form-control form-control-sm" placeholder="24" min="0" max="128">
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Gateway *</label>
+                        <input type="text" id="rGateway" class="form-control form-control-sm" placeholder="10.0.0.1">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Interface</label>
+                        <input type="text" id="rInterface" class="form-control form-control-sm" placeholder="eth0">
+                    </div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-4">
+                        <label class="form-label fw-semibold" style="font-size:12px">Metric</label>
+                        <input type="number" id="rMetric" class="form-control form-control-sm" placeholder="1" min="1">
+                    </div>
+                    <div class="col-8">
+                        <label class="form-label fw-semibold" style="font-size:12px">Description</label>
+                        <input type="text" id="rDesc" class="form-control form-control-sm" placeholder="optional">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #f1f5f9;padding:12px 20px">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitRoute()" style="font-weight:600">
+                    <i class="fas fa-plus me-1"></i>Add Route
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<style>
+.sys-tab        { background:#f1f5f9;color:#64748b; }
+.sys-tab-active { background:#3b82f6;color:#fff; }
+.sys-tab:hover:not(.sys-tab-active) { background:#e2e8f0; }
+
+.info-card {
+    background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:16px;
+}
+.info-card-title {
+    font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;
+    display:flex;align-items:center;gap:6px;
+}
+.kv-row { display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #f1f5f9; }
+.kv-row:last-child { border-bottom:none; }
+.kv-key   { color:#64748b;font-weight:500; }
+.kv-val   { color:#0f172a;font-weight:600;text-align:right; }
+
+.status-ok      { display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;background:#dcfce7;color:#166534; }
+.status-blocked { display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;background:#fee2e2;color:#991b1b; }
+.status-err     { display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e; }
+
+.section-head {
+    font-size:13px;font-weight:700;color:#1e293b;margin:0 0 10px;display:flex;align-items:center;justify-content:space-between;
+}
+</style>
+
+
+<script src="/static/js/picker.js"></script>
+<script>
+const DEVICE_ID  = {{ selected_device_id | tojson }};
+let _currentTab  = {{ active_tab | tojson }};
+window._SCHED_DEVICES = [{% for d in devices %}{"device_id":{{ d.device_id|tojson }},"name":{{ (d.name or d.device_id)|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}];
+
+// ---- Tab management ----
+function setTab(tab) {
+    _currentTab = tab;
+    document.querySelectorAll('.sys-tab').forEach(b => b.classList.remove('sys-tab-active'));
+    const btn = document.getElementById('tab_' + tab);
+    if (btn) btn.classList.add('sys-tab-active');
+    const url = new URL(window.location);
+    url.searchParams.set('tab', tab);
+    history.replaceState(null, '', url);
+    loadTab();
+}
+
+function loadTab() {
+    const loaders = {
+        connections: loadConnections,
+        admins:      loadAdmins,
+        backup:      loadBackup,
+        routing:     loadRouting,
+        interfaces:  loadInterfaces,
+        settings:    loadSettings,
+        scheduler:   loadScheduler,
+    };
+    (loaders[_currentTab] || (() => {}))();
+}
+
+// ================================================================
+// CONNECTIONS (Multi-СУ)
+// ================================================================
+const _SU_LIST = {{ (su_list | tojson) if su_list is defined else '[]' }};
+
+function loadConnections() {
+    _renderConnections(_SU_LIST);
+}
+
+function _renderConnections(list) {
+    const rows = list.map(su => `
+        <tr>
+            <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${su.is_active ? '#22c55e' : '#ef4444'};margin-right:6px"></span>${_esc(su.name)}</td>
+            <td style="color:#64748b;font-size:12px">${_esc(su.host)}</td>
+            <td style="color:#64748b;font-size:12px">${_esc(su.username)}</td>
+            <td style="color:#64748b;font-size:12px">${su.last_synced_at ? new Date(su.last_synced_at).toLocaleString() : '—'}</td>
+            <td style="text-align:right">
+                <button onclick="syncSUFromSys('${su.id}')" style="padding:3px 8px;border-radius:5px;border:1px solid #e2e8f0;background:#fff;font-size:11px;cursor:pointer;margin-right:4px"
+                        title="Sync"><i class="fas fa-rotate" style="color:#3b82f6"></i></button>
+                <button onclick="renameSU('${su.id}','${_esc(su.name).replace(/'/g,"\\'")}'" ) style="padding:3px 8px;border-radius:5px;border:1px solid #e2e8f0;background:#fff;font-size:11px;cursor:pointer;margin-right:4px"
+                        title="Rename"><i class="fas fa-pencil" style="color:#64748b"></i></button>
+                <button onclick="deleteSU('${su.id}','${_esc(su.name).replace(/'/g,"\\'")}'" ) style="padding:3px 8px;border-radius:5px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.05);font-size:11px;cursor:pointer"
+                        title="Remove"><i class="fas fa-trash" style="color:#ef4444"></i></button>
+            </td>
+        </tr>`).join('');
+
+    document.getElementById('mainContent').innerHTML = `
+        <div style="max-width:900px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div>
+                    <div style="font-size:15px;font-weight:700;color:#1e293b">Management Systems</div>
+                    <div style="font-size:12px;color:#64748b;margin-top:2px">Connect to multiple NGFW management systems to view and transfer rules between them</div>
+                </div>
+                <button onclick="showAddSU()" style="padding:7px 14px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">
+                    <i class="fas fa-plus me-1"></i>Add Connection
+                </button>
+            </div>
+            ${list.length === 0 ? '<div style="text-align:center;padding:60px;color:#94a3b8;font-size:13px"><i class="fas fa-plug" style="font-size:32px;opacity:.3;display:block;margin-bottom:12px"></i>No connections yet. Click "Add Connection" to get started.</div>' : `
+            <table class="rules-table" style="background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+                <thead><tr>
+                    <th>Name</th><th>Host</th><th>Username</th><th>Last Sync</th><th style="text-align:right">Actions</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`}
+        </div>`;
+}
+
+async function showAddSU() {
+    const name = prompt('Connection name (e.g. "Production-NGFW"):');
+    if (!name) return;
+    const host = prompt('Host (IP or IP:port):');
+    if (!host) return;
+    const username = prompt('Username:');
+    if (!username) return;
+    const password = prompt('Password:');
+    if (!password) return;
+
+    try {
+        const r = await fetch('/api/v1/su', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, host, username, password})
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Failed');
+        alert('Connection added! Click Sync to load devices.');
+        location.reload();
+    } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function renameSU(id, currentName) {
+    const name = prompt('New name:', currentName);
+    if (!name || name === currentName) return;
+    const r = await fetch(`/api/v1/su/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name})
+    });
+    if (r.ok) location.reload();
+    else alert('Error: ' + (await r.json()).detail);
+}
+
+async function deleteSU(id, name) {
+    if (!confirm(`Remove connection "${name}"?\n\nAll synced data for this management system will be deleted.`)) return;
+    const r = await fetch(`/api/v1/su/${id}`, {method: 'DELETE'});
+    if (r.ok) location.reload();
+    else alert('Error: ' + (await r.json()).detail);
+}
+
+async function syncSUFromSys(id) {
+    if (!confirm('Sync all devices from this management system?')) return;
+    const r = await fetch(`/api/v1/su/${id}/sync`, {method: 'POST'});
+    if (r.ok) { alert('Sync started. Reload the page in a few seconds.'); location.reload(); }
+    else alert('Error: ' + (await r.json()).detail);
+}
+
+function _loading() {
+    document.getElementById('mainContent').innerHTML =
+        '<div style="text-align:center;padding:60px;color:#94a3b8"><i class="fas fa-spinner fa-spin" style="font-size:24px"></i></div>';
+}
+
+function _err(msg) {
+    document.getElementById('mainContent').innerHTML =
+        `<div style="text-align:center;padding:60px;color:#ef4444;font-size:13px"><i class="fas fa-exclamation-circle me-2"></i>${_esc(msg)}</div>`;
+}
+
+// ================================================================
+// ADMINS
+// ================================================================
+async function loadAdmins() {
+    _loading();
+    try {
+        const r = await fetch(`/api/v1/system/admins?device_group_id=${encodeURIComponent(DEVICE_ID)}`);
+        const data = await r.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Failed');
+        _renderAdmins(data.admins || []);
+    } catch (e) { _err(e.message); }
+}
+
+function _renderAdmins(admins) {
+    const rows = admins.length ? admins.map(a => {
+        const id    = _g(a, 'id', 'uuid');
+        const login = _g(a, 'login', 'username');
+        const name  = _g(a, 'name', 'displayName', 'fullName');
+        const role  = _g(a, 'role', 'roleName');
+        const blocked = a.blocked === true || a.blocked === 'true' || a.status === 'blocked';
+        return `<tr>
+            <td style="font-weight:700;font-size:12px">${_esc(login)}</td>
+            <td style="font-size:12px">${_esc(name)}</td>
+            <td><span class="tag-pill" style="font-size:10px">${_esc(role)}</span></td>
+            <td><span class="${blocked ? 'status-blocked' : 'status-ok'}">${blocked ? 'Blocked' : 'Active'}</span></td>
+            <td style="text-align:right">
+                <div style="display:flex;gap:4px;justify-content:flex-end">
+                    <button onclick="openPwModal('${_esc(id)}')" title="Change password"
+                            style="padding:3px 7px;border:none;border-radius:5px;background:#dbeafe;color:#1d4ed8;cursor:pointer;font-size:11px">
+                        <i class="fas fa-key"></i>
+                    </button>
+                    <button onclick="adminAction('${_esc(id)}','${blocked ? 'unblock' : 'block'}')" title="${blocked ? 'Unblock' : 'Block'}"
+                            style="padding:3px 7px;border:none;border-radius:5px;background:${blocked ? '#dcfce7' : '#fef3c7'};color:${blocked ? '#166534' : '#92400e'};cursor:pointer;font-size:11px">
+                        <i class="fas ${blocked ? 'fa-unlock' : 'fa-lock'}"></i>
+                    </button>
+                    <button onclick="adminAction('${_esc(id)}','delete')" title="Delete"
+                            style="padding:3px 7px;border:none;border-radius:5px;background:#fee2e2;color:#ef4444;cursor:pointer;font-size:11px">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="5" style="text-align:center;padding:32px;color:#94a3b8;font-size:13px">No admins found</td></tr>';
+
+    document.getElementById('mainContent').innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <h6 class="section-head" style="margin:0">Administrators</h6>
+            <button onclick="new bootstrap.Modal(document.getElementById('adminModal')).show()"
+                    style="padding:5px 14px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+                <i class="fas fa-plus me-1"></i>New Admin
+            </button>
+        </div>
+        <table class="rules-table">
+            <thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function openPwModal(adminId) {
+    document.getElementById('pwAdminId').value = adminId;
+    document.getElementById('pwNew').value = '';
+    new bootstrap.Modal(document.getElementById('pwModal')).show();
+}
+
+async function submitAdmin() {
+    const login = document.getElementById('adminLogin').value.trim();
+    const pw    = document.getElementById('adminPassword').value;
+    if (!login || !pw) { showToast('Login and password are required', 'warning'); return; }
+    showLoading('Creating admin…');
+    try {
+        const r = await fetch('/api/v1/system/admins/create', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                device_group_id: DEVICE_ID,
+                login,
+                name:     document.getElementById('adminName').value.trim(),
+                password: pw,
+                role:     document.getElementById('adminRole').value,
+            }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            bootstrap.Modal.getInstance(document.getElementById('adminModal')).hide();
+            showToast('Admin created', 'success');
+            await loadAdmins();
+        } else { showToast(data.message || 'Failed', 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+async function submitPassword() {
+    const adminId = document.getElementById('pwAdminId').value;
+    const pw      = document.getElementById('pwNew').value;
+    if (!pw) { showToast('Password required', 'warning'); return; }
+    showLoading('Updating…');
+    try {
+        const r = await fetch('/api/v1/system/admins/password', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ device_group_id: DEVICE_ID, admin_id: adminId, new_password: pw }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            bootstrap.Modal.getInstance(document.getElementById('pwModal')).hide();
+            showToast('Password updated', 'success');
+        } else { showToast(data.message || 'Failed', 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+async function adminAction(adminId, action) {
+    const labels = { delete: 'delete', block: 'block', unblock: 'unblock' };
+    if (action === 'delete') {
+        if (!await confirmDialog('Delete admin', 'Remove this administrator?', 'Delete', true)) return;
+    }
+    showLoading(`${labels[action]}ing admin…`);
+    try {
+        const r = await fetch('/api/v1/system/admins/action', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ device_group_id: DEVICE_ID, admin_id: adminId, action }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            showToast(`Admin ${action}ed`, 'success');
+            await loadAdmins();
+        } else { showToast(data.message || 'Failed', 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+// ================================================================
+// BACKUP & SNAPSHOT
+// ================================================================
+async function loadBackup() {
+    _loading();
+    try {
+        const r = await fetch(`/api/v1/system/backups?device_group_id=${encodeURIComponent(DEVICE_ID)}`);
+        const data = await r.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Failed');
+        _renderBackup(data.backups || [], data.snapshots || []);
+    } catch (e) { _err(e.message); }
+}
+
+function _fmtDate(val) {
+    if (!val) return '—';
+    try { return new Date(val).toLocaleString(); } catch { return String(val); }
+}
+
+function _fmtSize(bytes) {
+    if (!bytes) return '—';
+    const n = Number(bytes);
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+    return (n/1048576).toFixed(1) + ' MB';
+}
+
+function _renderBackup(backups, snapshots) {
+    const bRows = backups.length ? backups.map(b => {
+        const id   = _g(b, 'id', 'uuid');
+        const name = _g(b, 'name', 'filename', 'description');
+        const date = _g(b, 'createdAt', 'created_at', 'date', 'timestamp');
+        const size = _g(b, 'size', 'fileSize');
+        return `<tr>
+            <td style="font-size:12px;font-weight:600">${_esc(name)}</td>
+            <td style="font-size:12px">${_fmtDate(date)}</td>
+            <td style="font-size:12px">${_fmtSize(size)}</td>
+            <td style="text-align:right">
+                <button onclick="deleteBackup('${_esc(id)}')" title="Delete"
+                        style="padding:3px 7px;border:none;border-radius:5px;background:#fee2e2;color:#ef4444;cursor:pointer;font-size:11px">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="4" style="text-align:center;padding:24px;color:#94a3b8;font-size:12px">No backups</td></tr>';
+
+    const sRows = snapshots.length ? snapshots.map(s => {
+        const id   = _g(s, 'id', 'uuid');
+        const desc = _g(s, 'description', 'name', 'comment');
+        const date = _g(s, 'createdAt', 'created_at', 'date', 'timestamp');
+        return `<tr>
+            <td style="font-size:12px;font-family:monospace">${_esc(id.slice(0,12))}…</td>
+            <td style="font-size:12px">${_esc(desc)}</td>
+            <td style="font-size:12px">${_fmtDate(date)}</td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="3" style="text-align:center;padding:24px;color:#94a3b8;font-size:12px">No snapshots</td></tr>';
+
+    document.getElementById('mainContent').innerHTML = `
+        <div class="row g-4">
+            <div class="col-12 col-xl-7">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <h6 class="section-head" style="margin:0"><i class="fas fa-hdd me-2" style="color:#3b82f6"></i>Backups</h6>
+                    <button onclick="createBackup()" style="padding:5px 14px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+                        <i class="fas fa-plus me-1"></i>Create Backup
+                    </button>
+                </div>
+                <table class="rules-table">
+                    <thead><tr><th>Name / File</th><th>Date</th><th>Size</th><th></th></tr></thead>
+                    <tbody>${bRows}</tbody>
+                </table>
+            </div>
+            <div class="col-12 col-xl-5">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <h6 class="section-head" style="margin:0"><i class="fas fa-camera me-2" style="color:#8b5cf6"></i>Snapshots</h6>
+                    <button onclick="commitSnapshot()" style="padding:5px 14px;border-radius:8px;border:none;background:#8b5cf6;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+                        <i class="fas fa-camera me-1"></i>Take Snapshot
+                    </button>
+                </div>
+                <table class="rules-table">
+                    <thead><tr><th>ID</th><th>Description</th><th>Date</th></tr></thead>
+                    <tbody>${sRows}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+async function createBackup() {
+    const desc = prompt('Backup description (optional):') ?? '';
+    showLoading('Creating backup…');
+    try {
+        const r = await fetch('/api/v1/system/backups/create', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ device_group_id: DEVICE_ID, description: desc }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') { showToast('Backup created', 'success'); await loadBackup(); }
+        else showToast(data.message || 'Failed', 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+async function commitSnapshot() {
+    const desc = prompt('Snapshot description (optional):') ?? '';
+    showLoading('Taking snapshot…');
+    try {
+        const r = await fetch('/api/v1/system/snapshots/commit', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ device_group_id: DEVICE_ID, description: desc }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') { showToast('Snapshot created', 'success'); await loadBackup(); }
+        else showToast(data.message || 'Failed', 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+async function deleteBackup(id) {
+    if (!await confirmDialog('Delete backup', 'Remove this backup? This cannot be undone.', 'Delete', true)) return;
+    showLoading('Deleting…');
+    try {
+        const r = await fetch('/api/v1/system/backups/delete', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ device_group_id: DEVICE_ID, backup_id: id }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') { showToast('Backup deleted', 'success'); await loadBackup(); }
+        else showToast(data.message || 'Failed', 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+// ================================================================
+// ROUTING
+// ================================================================
+async function loadRouting() {
+    _loading();
+    try {
+        const r = await fetch(`/api/v1/system/routing?device_group_id=${encodeURIComponent(DEVICE_ID)}`);
+        const data = await r.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Failed');
+        _renderRouting(data);
+    } catch (e) { _err(e.message); }
+}
+
+function _renderRouting(data) {
+    const routes    = data.routes    || [];
+    const bgpInfo   = data.bgp_info  || {};
+    const bgpPeers  = data.bgp_peers || [];
+    const ospfInfo  = data.ospf_info  || {};
+    const ospfAreas = data.ospf_areas || [];
+
+    const rRows = routes.length ? routes.map(r => {
+        const id    = _g(r, 'id', 'uuid');
+        const dest  = _g(r, 'destination', 'network', 'prefix');
+        const plen  = _g(r, 'prefixLen', 'prefix_len', 'mask', 'prefixLength');
+        const gw    = _g(r, 'gateway', 'nextHop', 'nexthop');
+        const iface = _g(r, 'interface', 'outInterface', 'egress');
+        const met   = _g(r, 'metric', 'distance');
+        const desc  = _g(r, 'description', 'comment', 'name');
+        return `<tr>
+            <td style="font-family:monospace;font-size:12px;font-weight:600">${_esc(dest)}${plen !== '—' ? '/'+plen : ''}</td>
+            <td style="font-family:monospace;font-size:12px">${_esc(gw)}</td>
+            <td style="font-size:12px">${_esc(iface)}</td>
+            <td style="font-size:12px;color:#64748b">${_esc(met)}</td>
+            <td style="font-size:12px;color:#64748b">${_esc(desc)}</td>
+            <td style="text-align:right">
+                <button onclick="deleteRoute('${_esc(id)}')" style="padding:3px 7px;border:none;border-radius:5px;background:#fee2e2;color:#ef4444;cursor:pointer;font-size:11px">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;font-size:12px">No static routes</td></tr>';
+
+    const bgpPeerRows = bgpPeers.map(p => {
+        const ip    = _g(p, 'ip', 'address', 'neighbor');
+        const asn   = _g(p, 'remoteAsn', 'asn', 'remoteAS');
+        const state = _g(p, 'state', 'status', 'sessionState');
+        const ok    = String(state).toLowerCase() === 'established';
+        return `<tr>
+            <td style="font-family:monospace;font-size:12px">${_esc(ip)}</td>
+            <td style="font-size:12px">${_esc(asn)}</td>
+            <td><span class="${ok ? 'status-ok' : 'status-err'}">${_esc(state)}</span></td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="3" style="text-align:center;padding:16px;color:#94a3b8;font-size:12px">No BGP peers</td></tr>';
+
+    const ospfAreaRows = ospfAreas.map(a => {
+        const id   = _g(a, 'id', 'areaId', 'area');
+        const type = _g(a, 'type', 'areaType');
+        const nets = _g(a, 'networks', 'prefixes');
+        return `<tr>
+            <td style="font-family:monospace;font-size:12px">${_esc(id)}</td>
+            <td style="font-size:12px">${_esc(type)}</td>
+            <td style="font-size:12px">${Array.isArray(nets) ? nets.join(', ') : _esc(nets)}</td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="3" style="text-align:center;padding:16px;color:#94a3b8;font-size:12px">No OSPF areas</td></tr>';
+
+    const bgpAsn    = _g(bgpInfo, 'asn', 'localAsn', 'localAS');
+    const bgpEn     = bgpInfo.enabled !== false;
+    const ospfRtrId = _g(ospfInfo, 'routerId', 'router_id');
+    const ospfEn    = ospfInfo.enabled !== false;
+
+    document.getElementById('mainContent').innerHTML = `
+        <div class="row g-4">
+            <div class="col-12">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <h6 class="section-head" style="margin:0"><i class="fas fa-route me-2" style="color:#3b82f6"></i>Static Routes</h6>
+                    <button onclick="new bootstrap.Modal(document.getElementById('routeModal')).show()"
+                            style="padding:5px 14px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+                        <i class="fas fa-plus me-1"></i>Add Route
+                    </button>
+                </div>
+                <table class="rules-table">
+                    <thead><tr><th>Destination</th><th>Gateway</th><th>Interface</th><th>Metric</th><th>Description</th><th></th></tr></thead>
+                    <tbody>${rRows}</tbody>
+                </table>
+            </div>
+
+            <div class="col-12 col-xl-6">
+                <div class="info-card">
+                    <div class="info-card-title">
+                        <i class="fas fa-project-diagram" style="color:#10b981"></i>BGP
+                        <span class="${bgpEn ? 'status-ok' : 'status-blocked'}" style="margin-left:auto">${bgpEn ? 'Enabled' : 'Disabled'}</span>
+                    </div>
+                    ${bgpAsn !== '—' ? `<div class="kv-row"><span class="kv-key">Local ASN</span><span class="kv-val">${_esc(bgpAsn)}</span></div>` : ''}
+                    <div style="margin-top:10px">
+                        <table class="rules-table" style="font-size:11px">
+                            <thead><tr><th>Neighbor</th><th>Remote ASN</th><th>State</th></tr></thead>
+                            <tbody>${bgpPeerRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-xl-6">
+                <div class="info-card">
+                    <div class="info-card-title">
+                        <i class="fas fa-circle-nodes" style="color:#f59e0b"></i>OSPF
+                        <span class="${ospfEn ? 'status-ok' : 'status-blocked'}" style="margin-left:auto">${ospfEn ? 'Enabled' : 'Disabled'}</span>
+                    </div>
+                    ${ospfRtrId !== '—' ? `<div class="kv-row"><span class="kv-key">Router ID</span><span class="kv-val">${_esc(ospfRtrId)}</span></div>` : ''}
+                    <div style="margin-top:10px">
+                        <table class="rules-table" style="font-size:11px">
+                            <thead><tr><th>Area</th><th>Type</th><th>Networks</th></tr></thead>
+                            <tbody>${ospfAreaRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+async function submitRoute() {
+    const dest = document.getElementById('rDest').value.trim();
+    const gw   = document.getElementById('rGateway').value.trim();
+    const plen = parseInt(document.getElementById('rPrefix').value || '0');
+    if (!dest || !gw) { showToast('Destination and gateway are required', 'warning'); return; }
+    showLoading('Adding route…');
+    try {
+        const r = await fetch('/api/v1/system/routing/create', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                device_group_id: DEVICE_ID,
+                destination: dest,
+                prefix_len:  plen,
+                gateway:     gw,
+                interface:   document.getElementById('rInterface').value.trim(),
+                metric:      parseInt(document.getElementById('rMetric').value || '1'),
+                description: document.getElementById('rDesc').value.trim(),
+            }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            bootstrap.Modal.getInstance(document.getElementById('routeModal')).hide();
+            showToast('Route added', 'success');
+            await loadRouting();
+        } else showToast(data.message || 'Failed', 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+async function deleteRoute(id) {
+    if (!await confirmDialog('Delete route', 'Remove this static route?', 'Delete', true)) return;
+    showLoading('Deleting…');
+    try {
+        const r = await fetch('/api/v1/system/routing/delete', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ device_group_id: DEVICE_ID, route_id: id }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') { showToast('Route deleted', 'success'); await loadRouting(); }
+        else showToast(data.message || 'Failed', 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+// ================================================================
+// INTERFACES
+// ================================================================
+async function loadInterfaces() {
+    _loading();
+    try {
+        const r = await fetch(`/api/v1/system/interfaces?device_group_id=${encodeURIComponent(DEVICE_ID)}`);
+        const data = await r.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Failed');
+        _renderInterfaces(data.interfaces || []);
+    } catch (e) { _err(e.message); }
+}
+
+function _renderInterfaces(ifaces) {
+    const rows = ifaces.length ? ifaces.map(i => {
+        const name  = _g(i, 'name', 'ifName', 'interfaceName');
+        const type  = i._itype || _g(i, 'type', 'interfaceType');
+        const ip    = _g(i, 'ip', 'ipAddress', 'address');
+        const mask  = _g(i, 'mask', 'prefixLen', 'prefixLength');
+        const desc  = _g(i, 'description', 'comment');
+        const up    = i.status === 'up' || i.enabled === true || i.state === 'up';
+        return `<tr>
+            <td style="font-weight:700;font-size:12px">${_esc(name)}</td>
+            <td><span class="tag-pill" style="font-size:10px">${_esc(type)}</span></td>
+            <td style="font-family:monospace;font-size:12px">${ip !== '—' ? _esc(ip) + (mask !== '—' ? '/'+mask : '') : '—'}</td>
+            <td><span class="${up ? 'status-ok' : 'status-blocked'}">${up ? 'Up' : 'Down'}</span></td>
+            <td style="font-size:12px;color:#64748b">${_esc(desc)}</td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="5" style="text-align:center;padding:32px;color:#94a3b8;font-size:12px">No interfaces found</td></tr>';
+
+    document.getElementById('mainContent').innerHTML = `
+        <h6 class="section-head"><i class="fas fa-network-wired me-2" style="color:#3b82f6"></i>Virtual & Logical Interfaces</h6>
+        <table class="rules-table">
+            <thead><tr><th>Name</th><th>Type</th><th>IP Address</th><th>Status</th><th>Description</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+// ================================================================
+// SETTINGS (Timeouts)
+// ================================================================
+async function loadSettings() {
+    _loading();
+    try {
+        const r = await fetch(`/api/v1/system/timeouts?device_group_id=${encodeURIComponent(DEVICE_ID)}`);
+        const data = await r.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Failed');
+        _renderSettings(data.timeouts || {});
+    } catch (e) { _err(e.message); }
+}
+
+function _renderSettings(t) {
+    const fields = [
+        ['tcp',           'TCP Session Timeout',      _g(t,'tcp','tcpTimeout')],
+        ['udp',           'UDP Session Timeout',      _g(t,'udp','udpTimeout')],
+        ['icmp',          'ICMP Session Timeout',     _g(t,'icmp','icmpTimeout')],
+        ['tcp_half_open', 'TCP Half-Open Timeout',    _g(t,'tcpHalfOpen','tcpHalfOpenTimeout')],
+        ['tcp_time_wait', 'TCP Time-Wait Timeout',    _g(t,'tcpTimeWait','tcpTimeWaitTimeout')],
+        ['udp_stream',    'UDP Stream Timeout',       _g(t,'udpStream','udpStreamTimeout')],
+    ];
+
+    const inputs = fields.map(([key, label, val]) => `
+        <div class="col-12 col-md-6 col-xl-4">
+            <label class="form-label fw-semibold" style="font-size:12px">${label} <small style="color:#94a3b8">(sec)</small></label>
+            <input type="number" id="to_${key}" class="form-control form-control-sm"
+                   value="${val !== '—' ? _esc(val) : ''}" placeholder="default" min="0">
+        </div>`).join('');
+
+    document.getElementById('mainContent').innerHTML = `
+        <h6 class="section-head"><i class="fas fa-clock me-2" style="color:#3b82f6"></i>Session Timeouts</h6>
+        <div class="info-card">
+            <div class="row g-3 mb-4">${inputs}</div>
+            <button onclick="saveTimeouts()" style="padding:6px 18px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:600;cursor:pointer">
+                <i class="fas fa-save me-2"></i>Save Timeouts
+            </button>
+        </div>`;
+}
+
+async function saveTimeouts() {
+    const keys = ['tcp','udp','icmp','tcp_half_open','tcp_time_wait','udp_stream'];
+    const payload = { device_group_id: DEVICE_ID };
+    keys.forEach(k => {
+        const v = document.getElementById('to_' + k)?.value;
+        if (v && v !== '') payload[k] = parseInt(v);
+    });
+    showLoading('Saving timeouts…');
+    try {
+        const r = await fetch('/api/v1/system/timeouts/set', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') showToast('Timeouts saved', 'success');
+        else showToast(data.message || 'Failed', 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+}
+
+// ================================================================
+// ================================================================
+// SCHEDULER
+// ================================================================
+let _schedTasks = [];
+
+async function loadScheduler() {
+    _loading();
+    try {
+        const r = await fetch('/api/v1/scheduler/tasks');
+        const d = await r.json();
+        _schedTasks = d.tasks || [];
+        _renderScheduler(_schedTasks, d.has_credentials);
+    } catch(e) { _err(e.message); }
+}
+
+function _renderScheduler(tasks, hasCreds) {
+    const noCredsWarn = !hasCreds ? `
+        <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;
+                    padding:10px 14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#fbbf24;margin-bottom:12px">
+            <i class="fas fa-triangle-exclamation"></i>
+            Auto-sync requires system credentials: set <code style="font-size:11px;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">NGFW_URL</code>,
+            <code style="font-size:11px;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">NGFW_USER</code>,
+            <code style="font-size:11px;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">NGFW_PASSWORD</code> env vars.
+        </div>` : '';
+
+    const form = `
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">
+                <i class="fas fa-plus me-1" style="color:#3b82f6"></i>New Scheduled Task
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+                <div>
+                    <div style="font-size:10px;color:#64748b;margin-bottom:3px">Task type</div>
+                    <select id="sched_type" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:#0f172a;color:#e2e8f0;font-size:12px;outline:none">
+                        <option value="sync">Auto-Sync</option>
+                    </select>
+                </div>
+                <div>
+                    <div style="font-size:10px;color:#64748b;margin-bottom:3px">Device</div>
+                    <select id="sched_dev" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:#0f172a;color:#e2e8f0;font-size:12px;outline:none;min-width:160px">
+                        <option value="">All devices</option>
+                        ${(window._SCHED_DEVICES||[]).map(d=>`<option value="${_esc(d.device_id)}">${_esc(d.name||d.device_id)}</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <div style="font-size:10px;color:#64748b;margin-bottom:3px">Every (hours)</div>
+                    <input id="sched_hours" type="number" min="1" max="168" value="24"
+                           style="padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:#0f172a;color:#e2e8f0;font-size:12px;outline:none;width:80px">
+                </div>
+                <button onclick="createScheduledTask()"
+                        style="padding:6px 14px;border-radius:6px;border:none;background:#3b82f6;color:#fff;font-weight:600;font-size:12px;cursor:pointer">
+                    <i class="fas fa-plus me-1"></i>Add
+                </button>
+            </div>
+        </div>`;
+
+    if (!tasks.length) {
+        document.getElementById('mainContent').innerHTML = noCredsWarn + form + `
+            <div style="text-align:center;padding:48px;color:#475569">
+                <i class="fas fa-clock" style="font-size:32px;opacity:.2;display:block;margin-bottom:10px"></i>
+                <div style="font-size:13px">No scheduled tasks. Add one above.</div>
+            </div>`;
+        return;
+    }
+
+    const rows = tasks.map(t => {
+        const statusCls = {ok:'color:#22c55e', failed:'color:#ef4444', running:'color:#3b82f6', idle:'color:#64748b'}[t.status] || 'color:#64748b';
+        const statusIcon = {ok:'fa-circle-check', failed:'fa-circle-xmark', running:'fa-circle-notch fa-spin', idle:'fa-clock'}[t.status] || 'fa-clock';
+        const nextRun = t.next_run ? new Date(t.next_run).toLocaleString() : '—';
+        const lastRun = t.last_run ? new Date(t.last_run).toLocaleString() : 'Never';
+        return `<tr>
+            <td style="font-weight:600;font-size:12px">${t.task_type === 'sync' ? '<i class="fas fa-rotate" style="color:#3b82f6;margin-right:5px"></i>Auto-Sync' : _esc(t.task_type)}</td>
+            <td style="font-size:12px;color:#94a3b8">${_esc(t.device_name)}</td>
+            <td style="font-size:12px;text-align:center">${t.interval_hours}h</td>
+            <td><span style="${statusCls};font-size:11px"><i class="fas ${statusIcon} me-1"></i>${_esc(t.status)}</span></td>
+            <td style="font-size:11px;color:#64748b">${lastRun}</td>
+            <td style="font-size:11px;color:#64748b">${nextRun}</td>
+            <td style="font-size:11px;color:#ef4444">${t.last_error ? `<span title="${_esc(t.last_error)}">${_esc(t.last_error.slice(0,60))}…</span>` : ''}</td>
+            <td style="text-align:right">
+                <div style="display:flex;gap:4px;justify-content:flex-end">
+                    <label style="position:relative;display:inline-block;width:36px;height:20px;cursor:pointer" title="${t.enabled ? 'Disable' : 'Enable'}">
+                        <input type="checkbox" ${t.enabled ? 'checked' : ''} onchange="toggleTask(${t.id},this.checked)"
+                               style="opacity:0;width:0;height:0">
+                        <span style="position:absolute;inset:0;border-radius:10px;transition:.2s;
+                               background:${t.enabled ? '#3b82f6' : '#334155'}">
+                            <span style="position:absolute;top:2px;left:${t.enabled ? '18px' : '2px'};width:16px;height:16px;border-radius:8px;background:#fff;transition:.2s"></span>
+                        </span>
+                    </label>
+                    <button onclick="runTaskNow(${t.id})" title="Run now"
+                            style="padding:3px 7px;border:none;border-radius:5px;background:#dbeafe;color:#1d4ed8;cursor:pointer;font-size:11px">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button onclick="deleteTask(${t.id})" title="Delete"
+                            style="padding:3px 7px;border:none;border-radius:5px;background:#fee2e2;color:#ef4444;cursor:pointer;font-size:11px">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('mainContent').innerHTML = noCredsWarn + form + `
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,.07)">
+                        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Task</th>
+                        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Device</th>
+                        <th style="padding:8px 12px;text-align:center;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Interval</th>
+                        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Status</th>
+                        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Last Run</th>
+                        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Next Run</th>
+                        <th style="padding:8px 12px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase">Error</th>
+                        <th style="padding:8px 12px"></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+async function createScheduledTask() {
+    const task_type      = document.getElementById('sched_type').value;
+    const devSel         = document.getElementById('sched_dev');
+    const device_group_id = devSel.value || null;
+    const device_name    = devSel.value ? devSel.options[devSel.selectedIndex].text : 'All devices';
+    const interval_hours = parseInt(document.getElementById('sched_hours').value) || 24;
+
+    try {
+        const r = await fetch('/api/v1/scheduler/tasks', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({task_type, device_group_id, device_name, interval_hours})
+        });
+        const d = await r.json();
+        if (d.status !== 'ok') throw new Error(d.message || 'Failed');
+        showToast('Task created', 'success');
+        loadScheduler();
+    } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function toggleTask(id, enabled) {
+    try {
+        const r = await fetch(`/api/v1/scheduler/tasks/${id}`, {
+            method: 'PATCH',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({task_id: id, enabled})
+        });
+        const d = await r.json();
+        if (d.status !== 'ok') throw new Error(d.message);
+        showToast(enabled ? 'Task enabled' : 'Task disabled', 'success');
+        loadScheduler();
+    } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function deleteTask(id) {
+    if (!confirm('Delete this scheduled task?')) return;
+    try {
+        const r = await fetch(`/api/v1/scheduler/tasks/${id}`, {method:'DELETE'});
+        const d = await r.json();
+        if (d.status !== 'ok') throw new Error(d.message);
+        showToast('Task deleted', 'success');
+        loadScheduler();
+    } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function runTaskNow(id) {
+    try {
+        const r = await fetch(`/api/v1/scheduler/tasks/${id}/run`, {method:'POST'});
+        const d = await r.json();
+        if (d.status !== 'ok') throw new Error(d.message);
+        showToast('Task triggered — status will update shortly', 'success');
+        setTimeout(loadScheduler, 2000);
+    } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ================================================================
+// Utils
+// ================================================================
+function _g(obj, ...keys) {
+    for (const k of keys) {
+        if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];
+    }
+    return '—';
+}
+function _esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ---- Init ----
+document.addEventListener('DOMContentLoaded', () => loadTab());
+</script>
+
+{% endblock %}

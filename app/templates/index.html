@@ -1,0 +1,1957 @@
+{% extends "base.html" %}
+{% block title %}Policy Editor — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {# ====================== SIDEBAR ====================== #}
+    {% include "components/sidebar.html" %}
+
+    {# ====================== MAIN ========================= #}
+    <div class="app-main">
+
+        {# --- TOP BAR --- #}
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-layer-group" style="color:#3b82f6;margin-right:6px"></i>
+                Policy Editor
+            </span>
+            <div class="topbar-sep"></div>
+
+            <button class="btn-top" onclick="doSync()" title="Pull configuration from device">
+                <i class="fas fa-rotate"></i> Sync
+            </button>
+            {% if not is_ro %}
+            <button class="btn-top success" onclick="doCommit()" title="Apply folder order to NGFW">
+                <i class="fas fa-upload"></i> Deploy
+            </button>
+            {% endif %}
+            <div class="topbar-sep"></div>
+            <a href="/nat" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-arrows-left-right"></i> NAT
+            </a>
+            <a href="/objects" class="btn-top" style="text-decoration:none">
+                <i class="fas fa-cubes"></i> Objects
+            </a>
+            {% if analysis_issue_count > 0 %}
+            <a href="/analyzer" class="btn-top" style="text-decoration:none;color:#fbbf24;border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.08)"
+               title="Анализатор нашёл проблемы в политике">
+                <i class="fas fa-triangle-exclamation"></i> {{ analysis_issue_count }} issues
+            </a>
+            {% endif %}
+            <a href="/changelog" class="btn-top" style="text-decoration:none;color:#94a3b8"
+               title="Последние изменения">
+                <i class="fas fa-clock-rotate-left"></i>
+            </a>
+            <div class="topbar-sep"></div>
+            <div style="position:relative" id="exportDropdown">
+                <button class="btn-top" onclick="toggleExportDD()" title="Export / Import">
+                    <i class="fas fa-file-export"></i> Export
+                </button>
+                <div id="exportDDMenu" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;
+                     background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:8px;
+                     padding:6px 0;min-width:220px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                    <div style="padding:4px 12px 6px;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Export</div>
+                    <a id="exportXlsxLink" href="#" onclick="exportXlsx(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-file-excel" style="color:#22c55e;width:14px"></i>Rules → Excel
+                    </a>
+                    <a id="exportYamlLink" href="#" onclick="exportYaml(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-file-code" style="color:#f59e0b;width:14px"></i>Folders → YAML
+                    </a>
+                    <a href="#" onclick="exportHtmlReport(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-print" style="color:#a78bfa;width:14px"></i>Rules → Print / PDF
+                    </a>
+                    <hr style="border-color:rgba(255,255,255,.08);margin:4px 0">
+                    <div style="padding:4px 12px 6px;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Import</div>
+                    <a href="#" onclick="triggerYamlImport(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-file-import" style="color:#38bdf8;width:14px"></i>Restore Folders (YAML)
+                    </a>
+                    <input type="file" id="yamlImportInput" accept=".yaml,.yml" style="display:none" onchange="doYamlImport(this)">
+                </div>
+            </div>
+            <a href="https://www.tbank.ru/cf/CyEG1GUDMg" target="_blank" class="btn-top" style="text-decoration:none;color:#f59e0b" title="Поддержать разработку">
+                <i class="fas fa-heart"></i> Поддержать
+            </a>
+
+            <input type="hidden" id="current_device_id" value="{{ current_device_id }}">
+        </div>
+
+        {# --- RULES CONTENT --- #}
+        <div class="app-content">
+
+            {% if not dashboard_data %}
+            <div class="empty-state">
+                <i class="fas fa-inbox d-block"></i>
+                <div style="font-size:15px;font-weight:700;margin-bottom:6px">No folder selected</div>
+                <div style="font-size:13px">Select a folder in the sidebar or click <b>Sync</b> to load rules from the device.</div>
+            </div>
+            {% endif %}
+
+            {% for item in dashboard_data %}
+            <div class="folder-card">
+                <div class="folder-card-header">
+                    <input type="checkbox" class="form-check-input" id="chk_folder_{{ item.folder.id }}"
+                           onchange="toggleFolderCheck(this, '{{ item.folder.id }}')">
+                    <div class="folder-card-title">
+                        <i class="fas fa-folder-open" style="color:#3b82f6"></i>
+                        {{ item.folder.name }}
+                        <span class="section-badge {{ item.folder.section }}">{{ item.folder.section|upper }}</span>
+                        <span style="font-weight:400;color:#94a3b8;font-size:11px">{{ item.rules|length }} rules</span>
+                    </div>
+                    {% if not is_ro %}
+                    <button class="btn-top" style="margin-left:auto;padding:4px 10px"
+                            onclick="openCreateRule('{{ item.folder.id }}', '{{ current_device_id }}')">
+                        <i class="fas fa-plus"></i> Rule
+                    </button>
+                    {% endif %}
+                </div>
+
+                <div class="table-scroll">
+                <table class="rules-table">
+                    <thead>
+                        <tr>
+                            <th style="width:28px"></th>
+                            <th style="width:24px"></th>
+                            <th style="width:32px">#</th>
+                            <th style="min-width:160px;width:17%">Name</th>
+                            <th style="min-width:80px;width:9%">Src Zone</th>
+                            <th style="min-width:110px;width:12%">Source</th>
+                            <th style="min-width:80px;width:9%">Dst Zone</th>
+                            <th style="min-width:110px;width:12%">Destination</th>
+                            <th style="min-width:90px;width:9%">Service</th>
+                            <th style="min-width:100px;width:10%">Application</th>
+                            <th style="min-width:90px;width:9%">URL Cat</th>
+                            <th style="width:70px">Action</th>
+                            <th style="width:44px;text-align:center">On</th>
+                        </tr>
+                    </thead>
+                    <tbody class="sortable-rules" data-folder-id="{{ item.folder.id }}">
+                        {% for r in item.rules %}
+                        <tr data-id="{{ r.id }}" data-ext-id="{{ r.ext_id or '' }}" {% if not is_ro %}ondblclick='openEditRule({{ r | tojson | safe }})'{% endif %}
+                            {% if r.is_modified %}data-modified="1"{% endif %}
+                            {% if not r.enabled and r.is_modified %}style="opacity:.45;border-left:3px solid #f59e0b"
+                            {% elif r.is_modified %}style="background:rgba(245,158,11,.07);border-left:3px solid #f59e0b"
+                            {% elif not r.enabled %}style="opacity:.42"
+                            {% endif %}>
+                            <td style="padding-left:10px">
+                                {% if not is_ro %}<i class="fas fa-grip-vertical drag-handle"></i>{% endif %}
+                            </td>
+                            <td>
+                                {% if not is_ro %}
+                                <input type="checkbox" class="form-check-input rule-chk"
+                                       value="{{ r.id }}"
+                                       data-device="{{ item.folder.device_group_id }}"
+                                       data-folder="{{ item.folder.id }}"
+                                       onchange="updateBulkBar()">
+                                {% endif %}
+                            </td>
+                            <td style="color:#94a3b8;font-size:11px">{{ loop.index }}</td>
+                            <td>
+                                <div class="rule-name">
+                                    {{ r.name }}
+                                    {% if r.is_modified %}
+                                    <span data-ack-dot
+                                          title="Изменено через СУ ({{ r.modified_at }}). Наведи на строку чтобы скрыть."
+                                          style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-left:5px;vertical-align:middle;flex-shrink:0"></span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                {% if r.src_zone == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div>{{ r.src_zone | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% if r.src_net == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div style="font-size:12px">{{ r.src_net | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% if r.dst_zone == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div>{{ r.dst_zone | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% if r.dst_net == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div style="font-size:12px">{{ r.dst_net | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% if r.service == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div style="font-size:12px">{{ r.service | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% if r.application == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div style="font-size:12px">{{ r.application | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% if r.url_category == 'Any' %}<span class="rule-any">Any</span>
+                                {% else %}<div style="font-size:12px">{{ r.url_category | safe }}</div>{% endif %}
+                            </td>
+                            <td>
+                                {% set act = r.action|lower %}
+                                {% if 'allow' in act %}<span class="action-badge allow">ALLOW</span>
+                                {% elif 'drop' in act %}<span class="action-badge drop">DROP</span>
+                                {% elif 'deny' in act %}<span class="action-badge deny">DENY</span>
+                                {% else %}<span class="action-badge" style="background:#f1f5f9;color:#64748b">{{ r.action }}</span>
+                                {% endif %}
+                            </td>
+                            <td style="text-align:center">
+                                <div class="form-check form-switch d-flex justify-content-center mb-0">
+                                    <input class="form-check-input rule-toggle" type="checkbox" role="switch"
+                                           data-rule-id="{{ r.id }}"
+                                           {% if r.enabled %}checked{% endif %}
+                                           {% if is_ro %}disabled style="opacity:.4;cursor:not-allowed"{% else %}onchange="toggleRule(this)"{% endif %}>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="13" style="text-align:center;padding:20px;color:#94a3b8;font-style:italic;font-size:12px">
+                                Empty folder
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>{# /table-scroll #}
+
+                {# ---- Pagination bar ---- #}
+                {% if pg_total > pg_size %}
+                {% set btn = "display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;text-decoration:none;font-size:12px;border:1px solid #e2e8f0;background:#fff;color:#374151;" %}
+                {% set btn_dis = "display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;font-size:12px;border:1px solid #e2e8f0;background:#f8fafc;color:#cbd5e1;pointer-events:none;" %}
+                {% set btn_act = "display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;text-decoration:none;font-size:12px;border:1px solid #3b82f6;background:#eff6ff;color:#2563eb;font-weight:700;" %}
+                <div style="display:flex;align-items:center;gap:8px;padding:8px 16px;border-top:1px solid #f1f5f9;flex-wrap:wrap;font-size:12px;color:#64748b">
+                    <span style="color:#94a3b8">
+                        {{ (pg_page-1)*pg_size + 1 }}–{{ [pg_page*pg_size, pg_total] | min }} из {{ pg_total }}
+                    </span>
+                    <span style="color:#e2e8f0">|</span>
+                    <span>На странице:</span>
+                    {% for n in [10, 20, 50, 100] %}
+                    <a href="/?folder_id={{ pg_folder }}&page=1&page_size={{ n }}"
+                       style="{{ btn_act if pg_size==n else btn }}">{{ n }}</a>
+                    {% endfor %}
+                    <span style="color:#e2e8f0;margin-left:4px">|</span>
+                    <a href="/?folder_id={{ pg_folder }}&page=1&page_size={{ pg_size }}"
+                       style="{{ btn_dis if pg_page==1 else btn }}">«</a>
+                    <a href="/?folder_id={{ pg_folder }}&page={{ pg_page-1 }}&page_size={{ pg_size }}"
+                       style="{{ btn_dis if pg_page==1 else btn }}">‹</a>
+                    <span style="font-weight:600;color:#374151">{{ pg_page }} / {{ pg_pages }}</span>
+                    <a href="/?folder_id={{ pg_folder }}&page={{ pg_page+1 }}&page_size={{ pg_size }}"
+                       style="{{ btn_dis if pg_page==pg_pages else btn }}">›</a>
+                    <a href="/?folder_id={{ pg_folder }}&page={{ pg_pages }}&page_size={{ pg_size }}"
+                       style="{{ btn_dis if pg_page==pg_pages else btn }}">»</a>
+                </div>
+                {% endif %}
+
+            </div>
+            {% endfor %}
+
+        </div>{# /app-content #}
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+{# ====================== BULK BAR ====================== #}
+{% if not is_ro %}
+<div class="bulk-bar hidden" id="bulkBar">
+    <span><span class="bulk-bar-count" id="selCount">0</span> selected</span>
+
+    <div class="bulk-sep"></div>
+
+    <button class="btn-bulk green" onclick="bulkToggle(true)" title="Enable selected rules">
+        <i class="fas fa-circle-check me-1"></i>Enable
+    </button>
+    <button class="btn-bulk yellow" onclick="bulkToggle(false)" title="Disable selected rules">
+        <i class="fas fa-circle-xmark me-1"></i>Disable
+    </button>
+
+    <div class="bulk-sep"></div>
+
+    {# Action dropdown #}
+    <div class="bulk-dropdown" id="ddAction">
+        <button class="btn-bulk light" onclick="toggleBulkDD('ddAction')">
+            <i class="fas fa-shield-halved me-1"></i>Action <i class="fas fa-chevron-down ms-1" style="font-size:9px"></i>
+        </button>
+        <div class="bulk-dd-menu" id="ddActionMenu">
+            <div class="bulk-dd-item allow" onclick="bulkAction('allow')"><i class="fas fa-check me-2"></i>Allow</div>
+            <div class="bulk-dd-item deny" onclick="bulkAction('deny')"><i class="fas fa-ban me-2"></i>Deny</div>
+            <div class="bulk-dd-item drop" onclick="bulkAction('drop')"><i class="fas fa-circle-stop me-2"></i>Drop</div>
+            <div class="bulk-dd-item reset" onclick="bulkAction('reset_both')"><i class="fas fa-rotate me-2"></i>Reset Both</div>
+        </div>
+    </div>
+
+    {# Logging dropdown #}
+    <div class="bulk-dropdown" id="ddLog">
+        <button class="btn-bulk light" onclick="toggleBulkDD('ddLog')">
+            <i class="fas fa-file-lines me-1"></i>Logging <i class="fas fa-chevron-down ms-1" style="font-size:9px"></i>
+        </button>
+        <div class="bulk-dd-menu" id="ddLogMenu">
+            <div class="bulk-dd-item" onclick="bulkLog('LOG_MODE_ENABLED')"><i class="fas fa-toggle-on me-2" style="color:#22c55e"></i>Enable Logging</div>
+            <div class="bulk-dd-item" onclick="bulkLog('LOG_MODE_DISABLED')"><i class="fas fa-toggle-off me-2" style="color:#ef4444"></i>Disable Logging</div>
+            <div class="bulk-dd-item" onclick="bulkLog('LOG_MODE_IF_SESSIONS_EXISTS')"><i class="fas fa-clock me-2" style="color:#f59e0b"></i>If Session Exists</div>
+        </div>
+    </div>
+
+    <div class="bulk-sep"></div>
+
+    <button class="btn-bulk light" onclick="openMoveToFolder()">
+        <i class="fas fa-folder-arrow-down me-1"></i>Move
+    </button>
+    <button class="btn-bulk light" onclick="openTransfer()">
+        <i class="fas fa-paper-plane me-1"></i>Transfer
+    </button>
+    <button class="btn-bulk light" onclick="openSaveTemplate()" title="Save selected rule as template" style="color:#f59e0b">
+        <i class="fas fa-bookmark me-1"></i>Template
+    </button>
+    <button class="btn-bulk red" onclick="bulkDelete()">
+        <i class="fas fa-trash me-1"></i>Delete
+    </button>
+    <button class="btn-bulk light" onclick="clearSelection()" style="padding:5px 10px" title="Clear selection">
+        <i class="fas fa-xmark"></i>
+    </button>
+</div>
+{% endif %}
+
+{# ---- Save as Template Modal ---- #}
+<div class="modal fade" id="saveTemplateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-bookmark me-2" style="color:#f59e0b"></i>Save as Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:13px;color:#94a3b8">Save the selected rule as a reusable template (stored locally).</p>
+                <div class="mb-3">
+                    <label class="form-label-sm">Template Name <span style="color:#ef4444">*</span></label>
+                    <input type="text" id="tmpl_name" class="form-control" placeholder="e.g. Allow-HTTPS-internal">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label-sm">Description (optional)</label>
+                    <input type="text" id="tmpl_desc" class="form-control" placeholder="When to use this template">
+                </div>
+                <input type="hidden" id="tmpl_rule_id">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning fw-bold" onclick="submitSaveTemplate()">
+                    <i class="fas fa-bookmark me-1"></i>Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ====================== MODALS ====================== #}
+
+{# --- CREATE / EDIT RULE --- #}
+<div class="modal fade" id="ruleModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="ruleModalTitle">New Rule</h5>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px" id="ruleModalSub"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="max-height:75vh;overflow-y:auto">
+                <input type="hidden" id="rm_folder_id">
+                <input type="hidden" id="rm_rule_id">
+
+                {# Row 1: Name + Action + Enabled #}
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Rule Name <span style="color:#ef4444">*</span></label>
+                        <input type="text" id="rm_name" class="form-control" placeholder="e.g. Allow-Web-Servers">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label-sm">Action</label>
+                        <div class="action-group" id="rm_action_group">
+                            <button class="action-btn allow active" onclick="setAction('allow')">
+                                <i class="fas fa-check me-1"></i>Allow
+                            </button>
+                            <button class="action-btn drop" onclick="setAction('drop')">
+                                <i class="fas fa-ban me-1"></i>Drop
+                            </button>
+                            <button class="action-btn deny" onclick="setAction('deny')">
+                                <i class="fas fa-xmark me-1"></i>Deny
+                            </button>
+                        </div>
+                        <input type="hidden" id="rm_action" value="allow">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label-sm">Enabled</label>
+                        <div class="form-check form-switch mt-1">
+                            <input class="form-check-input" type="checkbox" id="rm_enabled" checked style="width:2.2em;height:1.1em">
+                            <label class="form-check-label" for="rm_enabled" style="font-size:12px">Active</label>
+                        </div>
+                    </div>
+                </div>
+
+                <hr style="margin:4px 0 14px;border-color:#f1f5f9">
+
+                {# Row 2: Zones #}
+                <div class="rule-form-section"><i class="fas fa-map-location-dot me-1"></i>Zones</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Source Zone</label>
+                        <div id="picker_src_zone"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Destination Zone</label>
+                        <div id="picker_dst_zone"></div>
+                    </div>
+                </div>
+
+                {# Row 3: Network objects #}
+                <div class="rule-form-section"><i class="fas fa-network-wired me-1"></i>Network Objects</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Source Address</label>
+                        <div id="picker_src_net"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Destination Address</label>
+                        <div id="picker_dst_net"></div>
+                    </div>
+                </div>
+
+                {# Row 4: Service #}
+                <div class="rule-form-section"><i class="fas fa-plug me-1"></i>Service</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                        <label class="form-label-sm">Service</label>
+                        <div id="picker_service"></div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label-sm">Log Mode</label>
+                        <select id="rm_log_mode" class="form-select" style="font-size:12px">
+                            <option value="SECURITY_RULE_LOG_MODE_AT_RULE_HIT">At Rule Hit</option>
+                            <option value="SECURITY_RULE_LOG_MODE_AT_SESSION_START">Session Start</option>
+                            <option value="SECURITY_RULE_LOG_MODE_AT_SESSION_END">Session End</option>
+                            <option value="SECURITY_RULE_LOG_MODE_AT_SESSION_START_AND_END">Start &amp; End</option>
+                            <option value="SECURITY_RULE_LOG_MODE_NO_LOG">No Log</option>
+                        </select>
+                    </div>
+                </div>
+
+                {# Row 5: L7 Filtering #}
+                <div class="rule-form-section"><i class="fas fa-layer-group me-1"></i>L7 Filtering</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Applications</label>
+                        <div id="picker_app"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-sm">URL Categories</label>
+                        <div id="picker_urlcat"></div>
+                    </div>
+                </div>
+
+                {# Row 6: Identity #}
+                <div class="rule-form-section"><i class="fas fa-user-shield me-1"></i>Identity</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-sm">Source Users / Groups</label>
+                        <div id="picker_user"></div>
+                    </div>
+                </div>
+
+                {# Row 7: Security Profiles #}
+                <div class="rule-form-section"><i class="fas fa-shield-halved me-1"></i>Security Profiles</div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label-sm">IPS Profile</label>
+                        <select id="rm_ips_profile" class="form-select" style="font-size:12px">
+                            <option value="">None</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label-sm">Antivirus Profile</label>
+                        <select id="rm_av_profile" class="form-select" style="font-size:12px">
+                            <option value="">None</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label-sm">ICAP Profile</label>
+                        <select id="rm_icap_profile" class="form-select" style="font-size:12px">
+                            <option value="">None</option>
+                        </select>
+                    </div>
+                </div>
+
+                {# Row 8: Description #}
+                <div class="mt-1">
+                    <label class="form-label-sm">Description <span style="color:#94a3b8;font-weight:400;text-transform:none">(optional)</span></label>
+                    <input type="text" id="rm_description" class="form-control" placeholder="Optional description" style="font-size:12px">
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <div id="rm_loading" style="display:none">
+                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                    <span style="font-size:12px">Saving…</span>
+                </div>
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary fw-bold" onclick="submitRule()">
+                    <i class="fas fa-save me-1"></i><span id="rm_save_label">Create Rule</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- CREATE FOLDER --- #}
+<div class="modal fade" id="folderModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <form action="/create_folder" method="POST">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-folder-plus me-2 text-primary"></i>New Folder</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="device_id" id="cf_gid">
+                    <div class="mb-3">
+                        <label class="form-label-sm">Folder Name</label>
+                        <input type="text" name="folder_name" class="form-control" placeholder="e.g. VLAN100 Policy" required autofocus>
+                    </div>
+                    <div>
+                        <label class="form-label-sm">Section</label>
+                        <div class="d-flex gap-2">
+                            {% for sec in ['pre', 'default', 'post'] %}
+                            <label style="flex:1;cursor:pointer">
+                                <input type="radio" name="section" value="{{ sec }}" {% if sec == 'pre' %}checked{% endif %} style="display:none" class="sec-radio">
+                                <div class="action-btn {{ 'active allow' if sec == 'pre' else '' }}" style="text-align:center;padding:6px 4px"
+                                     onclick="this.closest('label').querySelector('input').checked=true;document.querySelectorAll('.sec-radio').forEach(r=>r.closest('label').querySelector('div').className='action-btn');this.className='action-btn active allow'">
+                                    {{ sec|upper }}
+                                </div>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold">Create</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# --- MOVE TO FOLDER --- #}
+<div class="modal fade" id="moveModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-folder-arrow-down me-2 text-primary"></i>Move to Folder</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label-sm">Target Folder</label>
+                <select id="move_folder_sel" class="form-select">
+                    <option value="">Loading…</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm fw-bold" onclick="submitMove()">Move</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- TRANSFER / COPY --- #}
+<div class="modal fade" id="transferModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-paper-plane me-2 text-primary"></i>Transfer / Copy Rules</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label-sm">Management System (СУ)</label>
+                    <select id="tr_su" class="form-select" onchange="loadTransferDevices()">
+                        <option value="">— Select СУ —</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label-sm">Target Device</label>
+                    <select id="tr_device" class="form-select" disabled onchange="loadTransferFolders()">
+                        <option value="">— Select Device —</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label-sm">Target Folder <span style="color:#94a3b8;font-weight:400;text-transform:none">(optional)</span></label>
+                    <select id="tr_folder" class="form-select" disabled>
+                        <option value="">Default (top of policy)</option>
+                    </select>
+                </div>
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:12px;color:#64748b">
+                    <i class="fas fa-info-circle me-1 text-primary"></i>
+                    Objects from the source device will be matched or cloned on the target.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="doTransfer('copy')">
+                    <i class="fas fa-copy me-1"></i>Copy
+                </button>
+                <button type="button" class="btn btn-primary btn-sm fw-bold" onclick="doTransfer('move')">
+                    <i class="fas fa-arrow-right me-1"></i>Move
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- CONFLICTS REPORT --- #}
+<div class="modal fade" id="conflictsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-triangle-exclamation me-2 text-warning"></i>Object Conflicts Resolved</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:13px;color:#64748b">The following objects had name conflicts and were automatically renamed on the target device:</p>
+                <div id="conflicts_list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-sm" onclick="bootstrap.Modal.getInstance(document.getElementById('conflictsModal')).hide();location.reload()">
+                    OK, Reload
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- QUICK CREATE OBJECT (inline from picker) --- #}
+<div class="modal fade" id="quickCreateModal" tabindex="-1" style="z-index:1080">
+    <div class="modal-dialog" style="max-width:440px">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title fw-bold">
+                    <i class="fas fa-plus-circle me-2 text-primary"></i>Quick Create Object
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                {# Type toggle #}
+                <div class="mb-3" id="qc_type_row">
+                    <label class="form-label-sm">Type</label>
+                    <div class="d-flex flex-wrap gap-1" id="qc_type_btns"></div>
+                    <input type="hidden" id="qc_type">
+                </div>
+                {# Name #}
+                <div class="mb-3">
+                    <label class="form-label-sm">Name <span style="color:#ef4444">*</span></label>
+                    <input type="text" id="qc_name" class="form-control form-control-sm">
+                </div>
+                {# IP/Subnet #}
+                <div id="qc_f_ip" class="qc-field" style="display:none">
+                    <label class="form-label-sm">Address (IP or CIDR)</label>
+                    <input type="text" id="qc_ip" class="form-control form-control-sm" placeholder="192.168.1.10  or  10.0.0.0/24" style="font-family:monospace">
+                </div>
+                {# IP Range #}
+                <div id="qc_f_range" class="qc-field" style="display:none">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label-sm">Start IP</label>
+                            <input type="text" id="qc_range_s" class="form-control form-control-sm" style="font-family:monospace" placeholder="10.0.0.1">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label-sm">End IP</label>
+                            <input type="text" id="qc_range_e" class="form-control form-control-sm" style="font-family:monospace" placeholder="10.0.0.100">
+                        </div>
+                    </div>
+                </div>
+                {# FQDN #}
+                <div id="qc_f_fqdn" class="qc-field" style="display:none">
+                    <label class="form-label-sm">Domain</label>
+                    <input type="text" id="qc_fqdn" class="form-control form-control-sm" placeholder="example.com" style="font-family:monospace">
+                </div>
+                {# Service #}
+                <div id="qc_f_svc" class="qc-field" style="display:none">
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <label class="form-label-sm">Protocol</label>
+                            <select id="qc_proto" class="form-select form-select-sm">
+                                <option value="6">TCP (6)</option>
+                                <option value="17">UDP (17)</option>
+                                <option value="1">ICMP (1)</option>
+                            </select>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label-sm">Port from</label>
+                            <input type="number" id="qc_port_s" class="form-control form-control-sm" min="1" max="65535" style="font-family:monospace">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label-sm">Port to</label>
+                            <input type="number" id="qc_port_e" class="form-control form-control-sm" min="1" max="65535" placeholder="—" style="font-family:monospace">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary fw-bold" id="qc_submit_btn" onclick="submitQuickCreate()">
+                    <i class="fas fa-plus me-1"></i>Create &amp; Add
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+'use strict';
+
+/* =====================================================
+   GLOBALS
+   ===================================================== */
+const currentDeviceId = document.getElementById('current_device_id').value;
+
+// Picker instances
+let pkSrcZone, pkDstZone, pkSrcNet, pkDstNet, pkService, pkApp, pkUrlCat, pkUser;
+
+// Modals (lazy init)
+let _ruleModal, _folderModal, _moveModal, _transferModal, _conflictsModal;
+function getRuleModal()      { return _ruleModal      ||= new bootstrap.Modal(document.getElementById('ruleModal')); }
+function getFolderModal()    { return _folderModal    ||= new bootstrap.Modal(document.getElementById('folderModal')); }
+function getMoveModal()      { return _moveModal      ||= new bootstrap.Modal(document.getElementById('moveModal')); }
+function getTransferModal()  { return _transferModal  ||= new bootstrap.Modal(document.getElementById('transferModal')); }
+function getConflictsModal() { return _conflictsModal ||= new bootstrap.Modal(document.getElementById('conflictsModal')); }
+
+/* =====================================================
+   CHANGE TRACKING
+   ===================================================== */
+async function acknowledgeRule(ruleId, dotEl) {
+    // dotEl is optional (null when called from auto-hover)
+    const row = dotEl ? dotEl.closest('tr') : document.querySelector(`tr[data-id="${ruleId}"]`);
+    // Update DOM immediately for instant feedback
+    if (row) {
+        row.style.background = '';
+        row.style.borderLeft = '';
+        row.removeAttribute('data-modified');
+    }
+    if (dotEl) dotEl.remove();
+    else if (row) {
+        const dot = row.querySelector('[data-ack-dot]');
+        if (dot) dot.remove();
+    }
+    // Fire-and-forget to backend
+    fetch('/api/v1/rules/acknowledge', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rule_ids: [ruleId]})
+    }).catch(() => {});
+}
+
+// Auto-acknowledge modified rules on first hover
+document.addEventListener('mouseover', e => {
+    const row = e.target.closest('tr[data-modified]');
+    if (!row) return;
+    acknowledgeRule(row.dataset.id, null);
+}, false);
+
+/* =====================================================
+   SYNC & DEPLOY
+   ===================================================== */
+async function syncSU(suId) {
+    if (!await confirmDialog('Sync Management System', 'Pull configuration from this management system?', 'Sync', false)) return;
+    showLoading('Syncing management system…');
+    try {
+        const r = await fetch(`/api/v1/su/${encodeURIComponent(suId)}/sync`, { method: 'POST' });
+        if (!r.ok) throw new Error((await r.json()).detail || 'Sync failed');
+        showToast('Sync complete!', 'success');
+        setTimeout(() => location.reload(), 800);
+    } catch (e) {
+        hideLoading();
+        showToast('Sync error: ' + e.message, 'error');
+    }
+}
+
+async function renameSUInline(suId, currentName) {
+    const newName = window.prompt('Rename management system:', currentName);
+    if (!newName || newName.trim() === currentName) return;
+    try {
+        const r = await fetch(`/api/v1/su/${encodeURIComponent(suId)}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: newName.trim()})
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || 'Rename failed');
+        showToast('Renamed!', 'success');
+        setTimeout(() => location.reload(), 500);
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function showAddSUModal() {
+    const existing = document.getElementById('_addSUOverlay');
+    if (existing) { existing.style.display = 'flex'; return; }
+    const ov = document.createElement('div');
+    ov.id = '_addSUOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999';
+    ov.innerHTML = `
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:24px;width:360px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+                <span style="font-size:15px;font-weight:700;color:#e2e8f0"><i class="fas fa-plus-circle" style="color:#3b82f6;margin-right:8px"></i>Add Connection</span>
+                <button onclick="document.getElementById('_addSUOverlay').style.display='none'"
+                        style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;padding:0 4px">&times;</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+                <div>
+                    <label style="display:block;font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Display Name</label>
+                    <input id="_su_name" type="text" placeholder="e.g. Production NGFW" style="width:100%;box-sizing:border-box;background:#0f172a;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none">
+                </div>
+                <div>
+                    <label style="display:block;font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Host / IP</label>
+                    <input id="_su_host" type="text" placeholder="192.168.1.1" style="width:100%;box-sizing:border-box;background:#0f172a;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none">
+                </div>
+                <div>
+                    <label style="display:block;font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Username</label>
+                    <input id="_su_user" type="text" placeholder="admin" style="width:100%;box-sizing:border-box;background:#0f172a;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none">
+                </div>
+                <div>
+                    <label style="display:block;font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
+                    <input id="_su_pass" type="password" placeholder="••••••••" style="width:100%;box-sizing:border-box;background:#0f172a;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none">
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:12px;cursor:pointer">
+                    <input id="_su_ssl" type="checkbox" style="width:14px;height:14px;accent-color:#3b82f6"> Verify SSL certificate
+                </label>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+                <button onclick="document.getElementById('_addSUOverlay').style.display='none'"
+                        style="padding:8px 16px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#94a3b8;font-size:13px;cursor:pointer">Cancel</button>
+                <button onclick="_submitAddSU()"
+                        style="padding:8px 20px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:600;cursor:pointer">
+                    <i class="fas fa-plus" style="margin-right:5px"></i>Add
+                </button>
+            </div>
+        </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
+}
+
+async function _submitAddSU() {
+    const name = document.getElementById('_su_name').value.trim();
+    const host = document.getElementById('_su_host').value.trim();
+    const username = document.getElementById('_su_user').value.trim();
+    const password = document.getElementById('_su_pass').value;
+    const verify_ssl = document.getElementById('_su_ssl').checked;
+    if (!host || !username || !password) { showToast('Host, username and password are required', 'warning'); return; }
+    try {
+        const r = await fetch('/api/v1/su', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name || host, host, username, password, verify_ssl})
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || 'Failed to add');
+        showToast('Connection added!', 'success');
+        document.getElementById('_addSUOverlay').style.display = 'none';
+        setTimeout(() => location.reload(), 600);
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function doSync(deviceId) {
+    const label = deviceId ? 'Sync Device' : 'Sync All';
+    const msg   = deviceId ? 'Pull configuration for this device from NGFW?' : 'Pull rules and objects for ALL devices from NGFW?';
+    if (!await confirmDialog(label, msg, 'Sync', false)) return;
+    const url = deviceId ? `/sync?device_id=${encodeURIComponent(deviceId)}` : '/sync';
+    showLoading(deviceId ? 'Syncing device…' : 'Syncing all devices…');
+    try {
+        const r = await fetch(url, { method: 'POST' });
+        if (!r.ok) throw new Error((await r.json()).message || 'Sync failed');
+        showToast('Sync complete!', 'success');
+        setTimeout(() => location.reload(), 800);
+    } catch (e) {
+        hideLoading();
+        showToast('Sync error: ' + e.message, 'error');
+    }
+}
+
+async function doCommit() {
+    if (!currentDeviceId || currentDeviceId === 'None') {
+        showToast('No device selected.', 'warning'); return;
+    }
+    if (!await confirmDialog('Deploy to NGFW', 'Apply the current folder order to the live device?\n\nAfter deploy the device will be automatically synced.', 'Deploy', false)) return;
+    showLoading('Deploying to NGFW…');
+    const fd = new FormData();
+    fd.append('device_id', currentDeviceId);
+    try {
+        const r = await fetch('/commit', { method: 'POST', body: fd });
+        if (!r.ok) throw new Error((await r.json()).message || 'Deploy failed');
+        showLoading('Syncing after deploy…');
+        showToast('Deploy complete! Cache updated.', 'success');
+        setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+        hideLoading();
+        showToast('Deploy error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   ENABLE / DISABLE TOGGLE
+   ===================================================== */
+async function toggleRule(checkbox) {
+    const ruleId  = checkbox.dataset.ruleId;
+    const enabled = checkbox.checked;
+    checkbox.disabled = true;
+    try {
+        const r = await fetch('/api/v1/rules/toggle', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ rule_id: ruleId, enabled })
+        });
+        if (!r.ok) throw new Error((await r.json()).message || 'Failed');
+    } catch (e) {
+        showToast('Toggle failed: ' + e.message, 'error');
+        checkbox.checked = !enabled;
+    } finally {
+        checkbox.disabled = false;
+    }
+}
+
+/* =====================================================
+   DRAG & DROP
+   ===================================================== */
+document.querySelectorAll('.sortable-rules').forEach(tbody => {
+    new Sortable(tbody, {
+        group: 'rules',
+        handle: '.drag-handle',
+        animation: 120,
+        ghostClass: 'sortable-ghost',
+        onEnd: async (evt) => {
+            const fid = evt.to.dataset.folderId;
+            const ids = [...evt.to.querySelectorAll('tr[data-id]')].map(r => r.dataset.id);
+            await fetch('/api/v1/rules/reorder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder_id: fid, rule_ids: ids })
+            });
+        }
+    });
+});
+
+/* =====================================================
+   BULK SELECTION
+   ===================================================== */
+function updateBulkBar() {
+    const n = document.querySelectorAll('.rule-chk:checked').length;
+    const bar = document.getElementById('bulkBar');
+    bar.classList.toggle('hidden', n === 0);
+    document.getElementById('selCount').textContent = n;
+}
+
+function toggleFolderCheck(cb, fid) {
+    document.querySelectorAll(`tbody[data-folder-id="${fid}"] .rule-chk`).forEach(c => c.checked = cb.checked);
+    updateBulkBar();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.rule-chk').forEach(c => c.checked = false);
+    document.querySelectorAll('[id^="chk_folder_"]').forEach(c => c.checked = false);
+    updateBulkBar();
+}
+
+function getSelectedIds() {
+    return [...document.querySelectorAll('.rule-chk:checked')].map(c => c.value);
+}
+
+/* =====================================================
+   MOVE TO FOLDER
+   ===================================================== */
+async function openMoveToFolder() {
+    const ids = getSelectedIds();
+    if (!ids.length) { showToast('Select rules first', 'warning'); return; }
+    const checks = document.querySelectorAll('.rule-chk:checked');
+    const devId = checks[0].dataset.device || currentDeviceId;
+    const sel = document.getElementById('move_folder_sel');
+    sel.innerHTML = '<option>Loading…</option>';
+    getMoveModal().show();
+    try {
+        const res = await fetch(`/api/v1/rules/folders/tree?device_group_id=${devId}`);
+        const folders = await res.json();
+        sel.innerHTML = folders.map(f => `<option value="${f.id}">[${f.section.toUpperCase()}] ${f.name}</option>`).join('');
+    } catch { sel.innerHTML = '<option value="">Error loading folders</option>'; }
+}
+
+async function submitMove() {
+    const fid = document.getElementById('move_folder_sel').value;
+    if (!fid) { showToast('Select a folder', 'warning'); return; }
+    const ids = getSelectedIds();
+    getMoveModal().hide();
+    showLoading('Moving rules…');
+    try {
+        const r = await fetch('/api/v1/rules/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_id: fid, rule_ids: ids })
+        });
+        if (!r.ok) throw new Error('Failed');
+        hideLoading();
+        showToast(`${ids.length} rule(s) moved`, 'success');
+        setTimeout(() => location.reload(), 700);
+    } catch (e) {
+        hideLoading();
+        showToast('Move failed: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   TRANSFER / COPY
+   ===================================================== */
+function openTransfer() {
+    const ids = getSelectedIds();
+    if (!ids.length) { showToast('Select rules first', 'warning'); return; }
+
+    // Populate СУ dropdown from sidebar СУ group names
+    const suSel = document.getElementById('tr_su');
+    suSel.innerHTML = '<option value="">— Select СУ —</option>';
+    const seen = new Set();
+    document.querySelectorAll('.sidebar-device[data-su]').forEach(dev => {
+        const suId = dev.getAttribute('data-su');
+        if (suId && !seen.has(suId)) {
+            seen.add(suId);
+            // Find the СУ name from the sidebar header
+            const suGroup = dev.closest('[id^="su_"]');
+            let suName = suId;
+            if (suGroup) {
+                const hdr = suGroup.previousElementSibling;
+                const nameEl = hdr && hdr.querySelector('div > div');
+                if (nameEl) suName = nameEl.textContent.trim();
+            }
+            suSel.add(new Option(suName, suId));
+        }
+    });
+
+    document.getElementById('tr_device').innerHTML = '<option value="">— Select Device —</option>';
+    document.getElementById('tr_device').disabled = true;
+    document.getElementById('tr_folder').innerHTML = '<option value="">Default (top of policy)</option>';
+    document.getElementById('tr_folder').disabled = true;
+    getTransferModal().show();
+}
+
+function loadTransferDevices() {
+    const suId = document.getElementById('tr_su').value;
+    const devSel = document.getElementById('tr_device');
+    devSel.innerHTML = '<option value="">— Select Device —</option>';
+    devSel.disabled = true;
+    document.getElementById('tr_folder').innerHTML = '<option value="">Default (top of policy)</option>';
+    document.getElementById('tr_folder').disabled = true;
+    if (!suId) return;
+    document.querySelectorAll(`.sidebar-device[data-su="${suId}"]`).forEach(dev => {
+        const hdr = dev.querySelector('.sidebar-device-header');
+        const panel = dev.querySelector('.sidebar-folders');
+        if (!hdr || !panel) return;
+        const gid = panel.id.replace('dev_', '');
+        const name = hdr.querySelector('span')?.textContent?.trim();
+        if (gid && name) devSel.add(new Option(name, gid));
+    });
+    devSel.disabled = false;
+}
+
+async function loadTransferFolders() {
+    const devId = document.getElementById('tr_device').value;
+    const folSel = document.getElementById('tr_folder');
+    folSel.disabled = true;
+    folSel.innerHTML = '<option value="">Loading…</option>';
+    if (!devId) return;
+    try {
+        const res = await fetch(`/api/v1/rules/folders/tree?device_group_id=${encodeURIComponent(devId)}`);
+        const folders = await res.json();
+        folSel.innerHTML = '<option value="">Default (top of policy)</option>';
+        folders.forEach(f => folSel.add(new Option(`[${f.section.toUpperCase()}] ${f.name}`, f.id)));
+        folSel.disabled = false;
+    } catch { folSel.innerHTML = '<option value="">Error</option>'; }
+}
+
+async function doTransfer(mode) {
+    const devId = document.getElementById('tr_device').value;
+    if (!devId) { showToast('Select a target device', 'warning'); return; }
+    const folId = document.getElementById('tr_folder').value || null;
+    const ids = getSelectedIds();
+    getTransferModal().hide();
+    showLoading(mode === 'move' ? 'Moving rules…' : 'Copying rules…');
+    try {
+        const r = await fetch('/api/v1/rules/transfer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule_ids: ids, target_gid: devId, target_folder_id: folId, mode })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || 'Transfer failed');
+        hideLoading();
+        if (data.conflicts && data.conflicts.length) {
+            let html = '<ul class="list-group list-group-flush">';
+            data.conflicts.forEach(c => {
+                html += `<li class="list-group-item py-2 d-flex align-items-center gap-2" style="font-size:12px">
+                    <span class="text-muted">${c.type}</span><b>${c.old}</b>
+                    <i class="fas fa-arrow-right text-muted"></i><b class="text-danger">${c.new}</b></li>`;
+            });
+            html += '</ul>';
+            document.getElementById('conflicts_list').innerHTML = html;
+            getConflictsModal().show();
+        } else {
+            showToast(`${ids.length} rule(s) ${mode === 'move' ? 'moved' : 'copied'} successfully`, 'success');
+            setTimeout(() => location.reload(), 900);
+        }
+    } catch (e) {
+        hideLoading();
+        showToast('Transfer error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   BULK DROPDOWN
+   ===================================================== */
+function toggleBulkDD(id) {
+    const menu = document.getElementById(id + 'Menu');
+    const isOpen = menu.classList.contains('open');
+    document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    if (!isOpen) menu.classList.add('open');
+}
+document.addEventListener('click', e => {
+    if (!e.target.closest('.bulk-dropdown')) {
+        document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    }
+});
+
+/* =====================================================
+   BULK TOGGLE (enable / disable)
+   ===================================================== */
+async function bulkToggle(enabled) {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const label = enabled ? 'enable' : 'disable';
+    if (!await confirmDialog(
+        `${label.charAt(0).toUpperCase() + label.slice(1)} Rules`,
+        `${label.charAt(0).toUpperCase() + label.slice(1)} ${ids.length} selected rule(s)?`,
+        label.charAt(0).toUpperCase() + label.slice(1)
+    )) return;
+    showLoading(`${label.charAt(0).toUpperCase() + label.slice(1)}ing ${ids.length} rule(s)…`);
+    try {
+        const r = await fetch('/api/v1/rules/bulk_toggle', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids, enabled})
+        });
+        const d = await r.json();
+        hideLoading();
+        if (d.errors && d.errors.length) {
+            showToast(`${d.updated} updated, ${d.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${d.updated} rule(s) ${label}d`, 'success');
+        }
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        hideLoading();
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   BULK ACTION CHANGE
+   ===================================================== */
+async function bulkAction(action) {
+    document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!await confirmDialog(
+        'Change Action',
+        `Set action to "${action.toUpperCase()}" for ${ids.length} rule(s)?`,
+        'Apply'
+    )) return;
+    showLoading(`Changing action for ${ids.length} rule(s)…`);
+    try {
+        const r = await fetch('/api/v1/rules/bulk_action', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids, action})
+        });
+        const d = await r.json();
+        hideLoading();
+        if (d.errors && d.errors.length) {
+            showToast(`${d.updated} updated, ${d.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${d.updated} rule(s) → ${action}`, 'success');
+        }
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        hideLoading();
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   BULK LOG MODE CHANGE
+   ===================================================== */
+async function bulkLog(logMode) {
+    document.querySelectorAll('.bulk-dd-menu').forEach(m => m.classList.remove('open'));
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const label = logMode === 'LOG_MODE_ENABLED' ? 'Enable Logging'
+                : logMode === 'LOG_MODE_DISABLED' ? 'Disable Logging'
+                : 'If Session Exists';
+    if (!await confirmDialog(
+        'Change Logging',
+        `Set "${label}" for ${ids.length} rule(s)?`,
+        'Apply'
+    )) return;
+    showLoading(`Updating logging for ${ids.length} rule(s)…`);
+    try {
+        const r = await fetch('/api/v1/rules/bulk_log', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids, log_mode: logMode})
+        });
+        const d = await r.json();
+        hideLoading();
+        if (d.errors && d.errors.length) {
+            showToast(`${d.updated} updated, ${d.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${d.updated} rule(s) logging updated`, 'success');
+        }
+        setTimeout(() => location.reload(), 600);
+    } catch (e) {
+        hideLoading();
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   DELETE
+   ===================================================== */
+async function bulkDelete() {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!await confirmDialog('Delete Rules', `Permanently delete ${ids.length} rule(s) from the device?`, 'Delete')) return;
+    showLoading('Deleting…');
+    try {
+        const r = await fetch('/api/v1/rules/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule_ids: ids })
+        });
+        if (!r.ok) throw new Error('Failed');
+        hideLoading();
+        showToast(`${ids.length} rule(s) deleted`, 'success');
+        setTimeout(() => location.reload(), 700);
+    } catch (e) {
+        hideLoading();
+        showToast('Delete error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
+   CREATE FOLDER
+   ===================================================== */
+function openCreateFolder(gid) {
+    document.getElementById('cf_gid').value = gid || currentDeviceId;
+    getFolderModal().show();
+}
+
+/* =====================================================
+   RULE MODAL — HELPERS
+   ===================================================== */
+function setAction(a) {
+    document.getElementById('rm_action').value = a;
+    document.querySelectorAll('#rm_action_group .action-btn').forEach(b => {
+        b.className = 'action-btn ' + b.getAttribute('onclick').match(/'(\w+)'/)[1];
+    });
+    event.currentTarget.classList.add('active');
+}
+
+function setActionSilent(a) {
+    document.getElementById('rm_action').value = a;
+    document.querySelectorAll('#rm_action_group .action-btn').forEach(b => {
+        const ba = b.getAttribute('onclick').match(/'(\w+)'/)?.[1];
+        b.className = 'action-btn ' + ba + (ba === a ? ' active' : '');
+    });
+}
+
+function _resetModal() {
+    document.getElementById('rm_rule_id').value = '';
+    document.getElementById('rm_name').value = '';
+    document.getElementById('rm_description').value = '';
+    document.getElementById('rm_enabled').checked = true;
+    document.getElementById('rm_log_mode').value = 'SECURITY_RULE_LOG_MODE_AT_RULE_HIT';
+    setActionSilent('allow');
+    ['rm_ips_profile','rm_av_profile','rm_icap_profile'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+}
+
+/* =====================================================
+   PICKERS INIT
+   ===================================================== */
+async function _initPickers(deviceId) {
+    const pickerIds = ['picker_src_zone','picker_dst_zone','picker_src_net','picker_dst_net',
+                       'picker_service','picker_app','picker_urlcat','picker_user'];
+    pickerIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:8px">Loading…</div>';
+    });
+
+    try {
+        const [netRes, svcRes, zoneRes, appRes, urlRes, userRes] = await Promise.all([
+            fetch(`/api/v1/objects/list?device_group_id=${deviceId}&category=net`),
+            fetch(`/api/v1/objects/list?device_group_id=${deviceId}&category=service`),
+            fetch(`/api/v1/objects/list?device_group_id=${deviceId}&category=zone`),
+            fetch(`/api/v1/objects/list?device_group_id=${deviceId}&category=app`),
+            fetch(`/api/v1/objects/list?device_group_id=${deviceId}&category=urlcat`),
+            fetch(`/api/v1/objects/list?device_group_id=${deviceId}&category=user`),
+        ]);
+        const [nets, svcs, zones, apps, urls, users] = await Promise.all([
+            netRes.json(), svcRes.json(), zoneRes.json(),
+            appRes.json(), urlRes.json(), userRes.json()
+        ]);
+
+        const toItems = arr => arr.map(o => ({
+            id: o.id, name: o.name, global: o.name.startsWith('[Global]')
+        }));
+
+        const mkNet = (q, add) => openQuickCreate(q, 'net',     add);
+        const mkSvc = (q, add) => openQuickCreate(q, 'service', add);
+
+        pkSrcZone = new ObjectPicker(document.getElementById('picker_src_zone'), { items: toItems(zones), placeholder: 'Search zones…',              tagClass: 'zone-t' });
+        pkDstZone = new ObjectPicker(document.getElementById('picker_dst_zone'), { items: toItems(zones), placeholder: 'Search zones…',              tagClass: 'zone-t' });
+        pkSrcNet  = new ObjectPicker(document.getElementById('picker_src_net'),  { items: toItems(nets),  placeholder: 'Search network objects…',    onCreateNew: mkNet });
+        pkDstNet  = new ObjectPicker(document.getElementById('picker_dst_net'),  { items: toItems(nets),  placeholder: 'Search network objects…',    onCreateNew: mkNet });
+        pkService = new ObjectPicker(document.getElementById('picker_service'),  { items: toItems(svcs),  placeholder: 'Search services…',            tagClass: 'svc-t', onCreateNew: mkSvc });
+        pkApp     = new ObjectPicker(document.getElementById('picker_app'),      { items: toItems(apps),  placeholder: 'Search applications…',        tagClass: 'app-t' });
+        pkUrlCat  = new ObjectPicker(document.getElementById('picker_urlcat'),   { items: toItems(urls),  placeholder: 'Search URL categories…',      tagClass: 'url-t' });
+        pkUser    = new ObjectPicker(document.getElementById('picker_user'),     { items: toItems(users), placeholder: 'Search users / groups…',      tagClass: 'user-t' });
+    } catch (e) {
+        showToast('Failed to load objects: ' + e.message, 'error');
+    }
+}
+
+async function _loadProfiles(deviceId, selIps = '', selAv = '', selIcap = '') {
+    const specs = [
+        { type: 'ips',  selId: 'rm_ips_profile',  selected: selIps  },
+        { type: 'av',   selId: 'rm_av_profile',   selected: selAv   },
+        { type: 'icap', selId: 'rm_icap_profile', selected: selIcap },
+    ];
+    await Promise.all(specs.map(async ({ type, selId, selected }) => {
+        const sel = document.getElementById(selId);
+        try {
+            const res = await fetch(`/api/v1/profiles/list?profile_type=${type}&device_group_id=${deviceId}`);
+            const profiles = await res.json();
+            sel.innerHTML = '<option value="">None</option>';
+            profiles.forEach(p => {
+                const opt = new Option(p.name, p.id);
+                if (p.id === selected) opt.selected = true;
+                sel.add(opt);
+            });
+        } catch {
+            // profiles optional
+        }
+    }));
+}
+
+/* =====================================================
+   RULE MODAL — CREATE
+   ===================================================== */
+async function openCreateRule(folderId, deviceId) {
+    document.getElementById('ruleModalTitle').textContent = 'New Rule';
+    document.getElementById('ruleModalSub').textContent = '';
+    document.getElementById('rm_folder_id').value = folderId;
+    document.getElementById('rm_save_label').textContent = 'Create Rule';
+    _resetModal();
+
+    await Promise.all([
+        _initPickers(deviceId || currentDeviceId),
+        _loadProfiles(deviceId || currentDeviceId),
+    ]);
+
+    getRuleModal().show();
+    setTimeout(() => document.getElementById('rm_name').focus(), 300);
+}
+
+/* =====================================================
+   RULE MODAL — EDIT (double-click)
+   ===================================================== */
+async function openEditRule(r) {
+    document.getElementById('ruleModalTitle').textContent = 'Edit Rule';
+    document.getElementById('ruleModalSub').textContent = r.name;
+    document.getElementById('rm_folder_id').value = r.folder_id;
+    document.getElementById('rm_rule_id').value = r.id;
+    document.getElementById('rm_name').value = r.name;
+    document.getElementById('rm_description').value = r.description || '';
+    document.getElementById('rm_enabled').checked = r.enabled;
+    document.getElementById('rm_log_mode').value = r.log_mode || 'SECURITY_RULE_LOG_MODE_AT_RULE_HIT';
+    document.getElementById('rm_save_label').textContent = 'Save Changes';
+
+    const rawAction = (r.action || 'allow').toLowerCase()
+        .replace('security_rule_action_', '')
+        .split('_')[0];
+    const actionKey = rawAction === 'allow' ? 'allow' : (rawAction === 'drop' ? 'drop' : 'deny');
+    setActionSilent(actionKey);
+
+    const devId = currentDeviceId;
+    await Promise.all([
+        _initPickers(devId),
+        _loadProfiles(devId, r.ips_profile_id || '', r.av_profile_id || '', r.icap_profile_id || ''),
+    ]);
+
+    // Pre-select picker values
+    if (pkSrcZone) pkSrcZone.setSelectedByIds(r.src_zone_ids || []);
+    if (pkDstZone) pkDstZone.setSelectedByIds(r.dst_zone_ids || []);
+    if (pkSrcNet)  pkSrcNet.setSelectedByIds(r.src_net_ids  || []);
+    if (pkDstNet)  pkDstNet.setSelectedByIds(r.dst_net_ids  || []);
+    if (pkService) pkService.setSelectedByIds(r.service_ids || []);
+    if (pkApp)     pkApp.setSelectedByIds(r.app_ids         || []);
+    if (pkUrlCat)  pkUrlCat.setSelectedByIds(r.url_cat_ids  || []);
+    if (pkUser)    pkUser.setSelectedByIds(r.user_ids       || []);
+
+    getRuleModal().show();
+}
+
+/* =====================================================
+   RULE MODAL — SUBMIT (create or update)
+   ===================================================== */
+async function submitRule() {
+    const name = document.getElementById('rm_name').value.trim();
+    if (!name) { showToast('Rule name is required', 'warning'); document.getElementById('rm_name').focus(); return; }
+
+    const ruleId   = document.getElementById('rm_rule_id').value;
+    const folderId = document.getElementById('rm_folder_id').value;
+    const isEdit   = !!ruleId;
+
+    const payload = {
+        name,
+        description:     document.getElementById('rm_description').value.trim(),
+        action:          document.getElementById('rm_action').value,
+        enabled:         document.getElementById('rm_enabled').checked,
+        log_mode:        document.getElementById('rm_log_mode').value,
+        source_zone_ids: pkSrcZone ? pkSrcZone.getSelectedIds() : [],
+        dst_zone_ids:    pkDstZone ? pkDstZone.getSelectedIds() : [],
+        source_ids:      pkSrcNet  ? pkSrcNet.getSelectedIds()  : [],
+        dest_ids:        pkDstNet  ? pkDstNet.getSelectedIds()  : [],
+        service_ids:     pkService ? pkService.getSelectedIds() : [],
+        app_ids:         pkApp     ? pkApp.getSelectedIds()     : [],
+        url_cat_ids:     pkUrlCat  ? pkUrlCat.getSelectedIds()  : [],
+        user_ids:        pkUser    ? pkUser.getSelectedIds()    : [],
+        ips_profile_id:  document.getElementById('rm_ips_profile').value  || '',
+        av_profile_id:   document.getElementById('rm_av_profile').value   || '',
+        icap_profile_id: document.getElementById('rm_icap_profile').value || '',
+    };
+
+    if (isEdit) {
+        payload.rule_id = ruleId;
+    } else {
+        payload.folder_id = folderId;
+    }
+
+    const endpoint = isEdit ? '/api/v1/rules/update' : '/api/v1/rules/create';
+
+    document.getElementById('rm_loading').style.display = 'flex';
+    document.querySelector('#ruleModal .btn-primary').disabled = true;
+
+    try {
+        const r = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || 'Unknown error');
+        getRuleModal().hide();
+        showToast(isEdit ? `Rule "${name}" updated` : `Rule "${name}" created`, 'success');
+        setTimeout(() => location.reload(), 800);
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    } finally {
+        document.getElementById('rm_loading').style.display = 'none';
+        document.querySelector('#ruleModal .btn-primary').disabled = false;
+    }
+}
+
+/* Allow Enter in rule name to submit */
+document.getElementById('rm_name').addEventListener('keydown', e => { if (e.key === 'Enter') submitRule(); });
+
+/* =====================================================
+   QUICK CREATE OBJECT (inline from picker)
+   ===================================================== */
+let _qcCallback = null;
+let _qcModal = null;
+function getQcModal() { return _qcModal ||= new bootstrap.Modal(document.getElementById('quickCreateModal'), {backdrop: false}); }
+
+const QC_TYPES = {
+    net: [
+        { id: 'net_ip',    label: 'IP / Subnet', icon: 'fa-server' },
+        { id: 'net_range', label: 'IP Range',    icon: 'fa-arrows-left-right' },
+        { id: 'net_fqdn',  label: 'FQDN',        icon: 'fa-globe' },
+    ],
+    service: [
+        { id: 'service', label: 'Service', icon: 'fa-gear' },
+    ],
+};
+
+const QC_FIELD_MAP = { net_ip: 'qc_f_ip', net_range: 'qc_f_range', net_fqdn: 'qc_f_fqdn', service: 'qc_f_svc' };
+
+function _qcSelectType(id) {
+    document.getElementById('qc_type').value = id;
+    document.querySelectorAll('.qc-type-btn').forEach(b => {
+        b.className = 'qc-type-btn action-btn' + (b.dataset.id === id ? ' active allow' : '');
+    });
+    document.querySelectorAll('.qc-field').forEach(el => el.style.display = 'none');
+    const fid = QC_FIELD_MAP[id];
+    if (fid) document.getElementById(fid).style.display = '';
+}
+
+function _qcDetectType(text, context) {
+    if (context === 'service') return 'service';
+    if (/^\d{1,3}(\.\d{1,3}){3}\s*[-–]\s*\d{1,3}(\.\d{1,3}){3}$/.test(text.trim())) return 'net_range';
+    if (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(text.trim())) return 'net_ip';
+    return 'net_fqdn';
+}
+
+function openQuickCreate(searchText, context, addCallback) {
+    _qcCallback = addCallback;
+
+    // Build type buttons
+    const btnsEl = document.getElementById('qc_type_btns');
+    btnsEl.innerHTML = '';
+    const types = QC_TYPES[context] || QC_TYPES.net;
+    types.forEach((t, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.id = t.id;
+        b.className = 'qc-type-btn action-btn' + (i === 0 ? ' active allow' : '');
+        b.style.cssText = 'font-size:11px;padding:4px 12px';
+        b.innerHTML = `<i class="fas ${t.icon} me-1" style="font-size:10px"></i>${t.label}`;
+        b.onclick = () => _qcSelectType(t.id);
+        btnsEl.appendChild(b);
+    });
+    // Hide row if only one type
+    document.getElementById('qc_type_row').style.display = types.length > 1 ? '' : 'none';
+
+    // Auto-detect type and pre-fill
+    const detected = _qcDetectType(searchText, context);
+    _qcSelectType(detected);
+
+    // Pre-fill name and value fields
+    document.getElementById('qc_name').value = searchText;
+    if (detected === 'net_ip')    document.getElementById('qc_ip').value = searchText;
+    if (detected === 'net_fqdn')  document.getElementById('qc_fqdn').value = searchText;
+    if (detected === 'net_range') {
+        const p = searchText.split(/\s*[-–]\s*/);
+        document.getElementById('qc_range_s').value = p[0]?.trim() || '';
+        document.getElementById('qc_range_e').value = p[1]?.trim() || '';
+    }
+    if (detected === 'service') {
+        const m = searchText.match(/\d+/);
+        if (m) document.getElementById('qc_port_s').value = m[0];
+        document.getElementById('qc_port_e').value = '';
+    }
+
+    getQcModal().show();
+    setTimeout(() => document.getElementById('qc_name').focus(), 300);
+}
+
+async function submitQuickCreate() {
+    const name    = document.getElementById('qc_name').value.trim();
+    const subtype = document.getElementById('qc_type').value;
+    if (!name) { showToast('Name is required', 'warning'); document.getElementById('qc_name').focus(); return; }
+
+    const payload = { name, obj_type: subtype, device_group_id: currentDeviceId };
+
+    if (subtype === 'net_ip') {
+        const v = document.getElementById('qc_ip').value.trim();
+        if (!v) { showToast('Enter IP address', 'warning'); return; }
+        payload.ip_value = v;
+    } else if (subtype === 'net_range') {
+        const s = document.getElementById('qc_range_s').value.trim();
+        const e = document.getElementById('qc_range_e').value.trim();
+        if (!s || !e) { showToast('Enter start and end IP', 'warning'); return; }
+        payload.range_start = s; payload.range_end = e;
+    } else if (subtype === 'net_fqdn') {
+        const f = document.getElementById('qc_fqdn').value.trim();
+        if (!f) { showToast('Enter domain name', 'warning'); return; }
+        payload.fqdn = f;
+    } else if (subtype === 'service') {
+        payload.protocol       = parseInt(document.getElementById('qc_proto').value);
+        payload.dst_port_start = parseInt(document.getElementById('qc_port_s').value) || 0;
+        payload.dst_port_end   = parseInt(document.getElementById('qc_port_e').value) || 0;
+    }
+
+    const btn = document.getElementById('qc_submit_btn');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div>Creating…';
+
+    try {
+        const r = await fetch('/api/v1/objects/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        if (!r.ok || data.status === 'error') throw new Error(data.message || 'Failed');
+
+        getQcModal().hide();
+        showToast(`"${name}" создан и добавлен`, 'success');
+        if (_qcCallback) { _qcCallback({ id: data.id, name }); _qcCallback = null; }
+    } catch (e) {
+        showToast('Ошибка: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus me-1"></i>Create &amp; Add';
+    }
+}
+document.getElementById('qc_name').addEventListener('keydown', e => { if (e.key === 'Enter') submitQuickCreate(); });
+
+/* ============================================================
+   EXPORT DROPDOWN
+   ============================================================ */
+function toggleExportDD() {
+    const m = document.getElementById('exportDDMenu');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+    if (!e.target.closest('#exportDropdown')) {
+        const m = document.getElementById('exportDDMenu');
+        if (m) m.style.display = 'none';
+    }
+});
+
+function exportXlsx(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
+    window.location = `/api/v1/export/rules/xlsx?device_group_id=${encodeURIComponent(devId)}`;
+}
+
+function exportYaml(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
+    window.location = `/api/v1/export/folders/yaml?device_group_id=${encodeURIComponent(devId)}`;
+}
+
+function exportHtmlReport(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
+    window.open(`/api/v1/export/rules/html?device_group_id=${encodeURIComponent(devId)}`, '_blank');
+}
+
+function triggerYamlImport(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first', 'warning'); return; }
+    document.getElementById('yamlImportInput').click();
+}
+
+async function doYamlImport(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const devId = document.getElementById('current_device_id').value;
+
+    const confirmed = confirm(
+        `Import folder structure from "${file.name}"?\n\n` +
+        `This will restore virtual folders for the selected device and reassign rules.\n` +
+        `Existing folders with matching names will be updated; new ones will be created.`
+    );
+    input.value = '';
+    if (!confirmed) return;
+
+    showToast('Importing YAML…', 'info');
+    const fd = new FormData();
+    fd.append('device_group_id', devId);
+    fd.append('file', file);
+
+    try {
+        const r = await fetch('/api/v1/import/folders/yaml', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.status === 'ok') {
+            showToast(`Import done: ${d.folders_created} folders created, ${d.folders_updated} updated, ${d.rules_assigned} rules assigned`, 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('Import error: ' + (d.message || 'Unknown'), 'error');
+        }
+    } catch (err) {
+        showToast('Import failed: ' + err.message, 'error');
+    }
+}
+
+/* ============================================================
+   SAVE AS TEMPLATE
+   ============================================================ */
+let _tmplModal = null;
+function getTmplModal() {
+    return _tmplModal ||= new bootstrap.Modal(document.getElementById('saveTemplateModal'));
+}
+
+function openSaveTemplate() {
+    const ids = getSelectedIds();
+    if (ids.length !== 1) {
+        showToast('Select exactly one rule to save as template', 'warning');
+        return;
+    }
+    const name = [...document.querySelectorAll('.rule-chk:checked')][0]?.dataset?.name || '';
+    document.getElementById('tmpl_rule_id').value = ids[0];
+    document.getElementById('tmpl_name').value = name;
+    document.getElementById('tmpl_desc').value = '';
+    getTmplModal().show();
+    setTimeout(() => document.getElementById('tmpl_name').select(), 300);
+}
+
+async function submitSaveTemplate() {
+    const name   = document.getElementById('tmpl_name').value.trim();
+    const desc   = document.getElementById('tmpl_desc').value.trim();
+    const ruleId = document.getElementById('tmpl_rule_id').value;
+    if (!name) { showToast('Template name is required', 'warning'); return; }
+
+    try {
+        const r = await fetch('/api/v1/templates/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_id: ruleId, name, description: desc})
+        });
+        const data = await r.json();
+        if (!r.ok || data.status === 'error') throw new Error(data.message || 'Unknown error');
+        getTmplModal().hide();
+        showToast(`Template "${name}" saved`, 'success');
+    } catch(e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+document.getElementById('tmpl_name').addEventListener('keydown', e => { if (e.key === 'Enter') submitSaveTemplate(); });
+
+// ---- Navigate-to-rule highlight (changelog / analyzer) ----
+(function() {
+    const params = new URLSearchParams(window.location.search);
+
+    // Single-rule nav from changelog / logs (by name)
+    const targetName = params.get('highlight_rule') || params.get('rule_name');
+
+    // Single-rule nav from analyzer (by ext_id)
+    const hlSingle = params.get('hl') || '';
+
+    // Shadow-group nav from analyzer:
+    //   hl_shadow   = ext_id of the SHADOWING rule  → blue
+    //   hl_shadowed = ext_id of the SHADOWED rule   → orange-red
+    const hlPrimary  = params.get('hl_primary') || 'shadow';
+    const hlShadow   = params.get('hl_shadow')   || '';
+    const hlShadowed = (params.get('hl_shadowed') || '').split(',').filter(Boolean);
+
+    const anyHighlight = targetName || hlSingle || hlShadow || hlShadowed.length;
+    if (!anyHighlight) return;
+
+    // Clean URL
+    ['highlight_rule','rule_name','hl','hl_shadow','hl_shadowed','hl_primary'].forEach(k => params.delete(k));
+    history.replaceState(null, '', window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
+
+    // Which ext_id should we scroll to?
+    const scrollTarget = hlSingle || (hlPrimary === 'shadowed' ? hlShadowed[0] : hlShadow) || targetName;
+
+    function _applyHighlights() {
+        const rows = document.querySelectorAll('tbody tr[data-id]');
+        let scrolled = false;
+
+        for (const row of rows) {
+            const extId   = row.dataset.extId || '';
+            const nameCell = row.querySelector('td .rule-name');
+            const name    = nameCell ? nameCell.textContent.trim() : '';
+
+            // Single ext_id highlight from analyzer (blue)
+            if (hlSingle && extId === hlSingle) {
+                _flash(row, '#3b82f6', 'rgba(59,130,246,.18)', true);
+                if (!scrolled) { row.scrollIntoView({ behavior:'smooth', block:'center' }); scrolled = true; }
+            }
+
+            // Single-name highlight (blue)
+            if (targetName && name === targetName) {
+                _flash(row, '#3b82f6', 'rgba(59,130,246,.18)');
+                if (!scrolled) { row.scrollIntoView({ behavior:'smooth', block:'center' }); scrolled = true; }
+            }
+
+            // Shadow-group: shadowing rule (blue, scroll target)
+            if (hlShadow && extId === hlShadow) {
+                _flash(row, '#3b82f6', 'rgba(59,130,246,.2)', true);
+                if (hlPrimary === 'shadow' && !scrolled) { row.scrollIntoView({ behavior:'smooth', block:'center' }); scrolled = true; }
+            }
+
+            // Shadow-group: shadowed rule (orange-red)
+            if (hlShadowed.includes(extId)) {
+                _flash(row, '#ef4444', 'rgba(239,68,68,.15)', true);
+                if (hlPrimary === 'shadowed' && !scrolled) { row.scrollIntoView({ behavior:'smooth', block:'center' }); scrolled = true; }
+            }
+        }
+        return scrolled;
+    }
+
+    function _flash(row, color, bg, persistent) {
+        row.style.outline    = `2px solid ${color}`;
+        row.style.background = bg;
+        if (!persistent) {
+            setTimeout(() => { row.style.outline = ''; row.style.background = ''; }, 4000);
+        } else {
+            // Fade out after 6s
+            setTimeout(() => {
+                row.style.transition = 'background .8s, outline .8s';
+                row.style.outline    = '';
+                row.style.background = '';
+                setTimeout(() => { row.style.transition = ''; }, 900);
+            }, 6000);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!_applyHighlights()) setTimeout(_applyHighlights, 400);
+        });
+    } else {
+        if (!_applyHighlights()) setTimeout(_applyHighlights, 400);
+    }
+})();
+</script>
+
+{# ── Object Tooltip ── #}
+<script>
+(function () {
+    // Create at body level — never clipped by overflow:hidden; all styles inline for reliability
+    const tip = document.createElement('div');
+    Object.assign(tip.style, {
+        position:     'fixed',
+        zIndex:       '99999',
+        background:   '#1e293b',
+        border:       '1px solid rgba(255,255,255,.13)',
+        borderRadius: '8px',
+        padding:      '8px 12px',
+        minWidth:     '160px',
+        maxWidth:     '340px',
+        maxHeight:    '280px',
+        overflowY:    'auto',
+        boxShadow:    '0 8px 32px rgba(0,0,0,.6)',
+        pointerEvents:'none',
+        fontFamily:   'inherit',
+        fontSize:     '12px',
+        lineHeight:   '1.55',
+        display:      'none',
+        visibility:   'hidden',
+    });
+    document.body.appendChild(tip);
+
+    const cache = new Map();
+    let timer = null;
+    let activeEl = null;
+
+    function _esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function renderTree(node, depth) {
+        if (!node) return '';
+        const pad = depth * 12;
+        const hasKids = node.members && node.members.length > 0;
+
+        if (depth === 0 && hasKids) {
+            let h = `<div style="font-weight:700;font-size:12px;color:#e2e8f0;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:5px">${_esc(node.name)}<span style="font-size:10px;color:#64748b;font-weight:400;margin-left:5px">${_esc(node.type)}</span></div>`;
+            for (const m of node.members) h += renderTree(m, 1);
+            return h;
+        }
+        if (hasKids) {
+            let h = `<div style="padding-left:${pad}px;color:#94a3b8;font-size:11px;padding-top:2px"><span style="opacity:.5">▼</span> ${_esc(node.name)}</div>`;
+            for (const m of node.members) h += renderTree(m, depth + 1);
+            return h;
+        }
+        const val = node.value
+            ? `<span style="color:#60a5fa;font-family:monospace;font-size:11px;margin-left:10px;flex-shrink:0">${_esc(node.value)}</span>` : '';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0 2px ${pad}px;color:#cbd5e1;font-size:11px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">• ${_esc(node.name)}</span>${val}</div>`;
+    }
+
+    function renderSingle(node) {
+        const val = node.value
+            ? `<span style="color:#60a5fa;font-family:monospace;font-size:11px;margin-left:8px">${_esc(node.value)}</span>`
+            : `<span style="color:#475569;font-size:10px;margin-left:8px">${_esc(node.type)}</span>`;
+        return `<div style="color:#cbd5e1;font-size:12px;font-weight:600;white-space:nowrap">${_esc(node.name)}${val}</div>`;
+    }
+
+    async function show(el) {
+        const id = el.dataset.extId;
+        const dg = el.dataset.dg || '';
+        if (!id) return;
+
+        let node;
+        if (cache.has(id)) {
+            node = cache.get(id);
+        } else {
+            try {
+                const r = await fetch(`/api/v1/object/resolve?ext_id=${encodeURIComponent(id)}&device_group_id=${encodeURIComponent(dg)}`);
+                if (!r.ok) return;
+                node = await r.json();
+                cache.set(id, node);
+            } catch { return; }
+        }
+
+        if (activeEl !== el) return;
+
+        // Render content, make visible-but-invisible to measure actual height
+        tip.innerHTML = (node.members && node.members.length) ? renderTree(node, 0) : renderSingle(node);
+        tip.style.left = '-9999px';
+        tip.style.top  = '0';
+        tip.style.display    = 'block';
+        tip.style.visibility = 'hidden';
+
+        // Measure real size, then position correctly
+        const rect = el.getBoundingClientRect();
+        const tipH = tip.offsetHeight;
+        const tipW = tip.offsetWidth;
+        const gap = 6;
+
+        let left = rect.left;
+        let top  = rect.bottom + gap;
+
+        // Flip left if overflows right edge
+        if (left + tipW > window.innerWidth - 8)
+            left = Math.max(8, window.innerWidth - tipW - 8);
+
+        // Flip upward if overflows bottom edge
+        if (top + tipH > window.innerHeight - 8)
+            top = Math.max(8, rect.top - tipH - gap);
+
+        tip.style.left       = left + 'px';
+        tip.style.top        = top  + 'px';
+        tip.style.visibility = 'visible';
+    }
+
+    function hide() {
+        clearTimeout(timer);
+        activeEl = null;
+        tip.style.display    = 'none';
+        tip.style.visibility = 'hidden';
+    }
+
+    document.addEventListener('mouseover', e => {
+        const el = e.target.closest('[data-ext-id]');
+        if (!el) return;
+        if (el === activeEl) return;
+        clearTimeout(timer);
+        activeEl = el;
+        timer = setTimeout(() => show(el), 280);
+    });
+
+    document.addEventListener('mouseout', e => {
+        if (!e.target.closest('[data-ext-id]')) return;
+        hide();
+    });
+})();
+</script>
+{% endblock %}

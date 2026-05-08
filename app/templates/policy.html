@@ -1,0 +1,1083 @@
+{% extends "base.html" %}
+{% block title %}Policy Rules — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+
+    {% include "components/sidebar.html" %}
+
+    {# ===== MAIN ===== #}
+    <div class="app-main">
+
+        {# Topbar #}
+        <div class="app-topbar">
+            <span class="topbar-title">
+                <i class="fas fa-shield-virus" style="color:#3b82f6;margin-right:6px"></i>
+                Policy Rules
+            </span>
+            <div class="topbar-sep"></div>
+
+            {# Device selector #}
+            <select id="deviceSel" onchange="switchDevice(this.value)"
+                    style="padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);
+                           background:#1e293b;color:#e2e8f0;font-size:12px;outline:none;min-width:160px">
+                {% for d in devices %}
+                <option value="{{ d.device_id }}" {{ 'selected' if d.device_id == selected_device_id else '' }}>{{ d.name }}</option>
+                {% endfor %}
+            </select>
+
+            <div class="topbar-sep"></div>
+
+            {# Rule type tabs #}
+            <div style="display:flex;gap:4px">
+                {% for tid, tlbl, ticon in [('decryption','Decryption','fa-lock'),('auth','Authentication','fa-user-shield'),('pbr','PBR','fa-route')] %}
+                <button id="tab_{{ tid }}" onclick="setTab('{{ tid }}')"
+                        style="padding:4px 12px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:.15s"
+                        class="policy-tab {{ 'policy-tab-active' if tid == active_tab else '' }}">
+                    <i class="fas {{ ticon }} me-1"></i>{{ tlbl }}
+                </button>
+                {% endfor %}
+            </div>
+
+            <div class="topbar-sep"></div>
+
+            <button id="btnCreate" onclick="openCreate()"
+                    style="padding:5px 14px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:.15s"
+                    onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                <i class="fas fa-plus"></i> New Rule
+            </button>
+
+            <button onclick="loadRules()"
+                    style="padding:5px 10px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#374151;font-size:12px;font-weight:600;cursor:pointer;transition:.15s"
+                    onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+
+        {# Bulk action bar #}
+        <div id="bulkBar" style="display:none;padding:8px 16px;background:#eff6ff;border-bottom:1px solid #bfdbfe;display:flex;align-items:center;gap:10px">
+            <span id="bulkCount" style="font-size:13px;font-weight:600;color:#1d4ed8"></span>
+            <button onclick="bulkDelete()"
+                    style="padding:4px 12px;border-radius:6px;border:none;background:#ef4444;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+                <i class="fas fa-trash me-1"></i>Delete
+            </button>
+            <button onclick="clearSelection()"
+                    style="padding:4px 12px;border-radius:6px;border:1px solid #93c5fd;background:#fff;color:#1d4ed8;font-size:12px;font-weight:600;cursor:pointer">
+                Cancel
+            </button>
+        </div>
+
+        {# Rules table #}
+        <div class="table-scroll" style="flex:1;overflow:auto;display:flex;flex-direction:column">
+            <table class="rules-table" id="rulesTable" style="flex:1">
+                <thead id="rulesHead">
+                    <tr>
+                        <th style="width:32px"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+                        <th style="width:36px">#</th>
+                        <th>Name</th>
+                        <th>Src Zone</th>
+                        <th>Source</th>
+                        <th>Dst Zone</th>
+                        <th>Destination</th>
+                        <th>Service</th>
+                        <th id="thAction">Action</th>
+                        <th id="thExtra" style="display:none">Profile</th>
+                        <th style="width:60px">Status</th>
+                        <th style="width:80px"></th>
+                    </tr>
+                </thead>
+                <tbody id="rulesBody">
+                    <tr><td colspan="12" style="text-align:center;padding:40px;color:#94a3b8;font-size:13px">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Loading…
+                    </td></tr>
+                </tbody>
+            </table>
+            <div id="paginationBar"></div>
+        </div>
+
+    </div>{# /app-main #}
+</div>{# /app-layout #}
+
+<div id="policyLoader" style="display:none">
+    <div class="spinner-border text-light"></div>
+    <div class="loader-msg" id="policyLoaderMsg">Please wait…</div>
+</div>
+<div class="toast-stack" id="toastStack"></div>
+<div id="confirmOverlay" style="display:none">
+    <div id="confirmBox">
+        <div id="confirmTitle" style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px"></div>
+        <div id="confirmMsg"   style="font-size:13px;color:#94a3b8;margin-bottom:20px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button id="confirmCancelBtn" style="padding:6px 16px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#94a3b8;font-size:13px;cursor:pointer">Cancel</button>
+            <button id="confirmOkBtn"     style="padding:6px 16px;border-radius:6px;border:none;font-size:13px;font-weight:700;cursor:pointer">Confirm</button>
+        </div>
+    </div>
+</div>
+
+{# ===== EDIT MODAL ===== #}
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+            <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:16px 20px">
+                <h5 class="modal-title" style="font-weight:700;font-size:15px">Edit Rule</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+                <input type="hidden" id="eId">
+
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <label class="form-label fw-semibold" style="font-size:12px">Rule Name *</label>
+                        <input type="text" id="eName" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Source Zone</label>
+                        <select id="eSrcZone" class="form-select form-select-sm" multiple style="height:90px">
+                            {% for z in zone_objects %}<option value="{{ z.id }}">{{ z.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination Zone</label>
+                        <select id="eDstZone" class="form-select form-select-sm" multiple style="height:90px">
+                            {% for z in zone_objects %}<option value="{{ z.id }}">{{ z.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Source Address</label>
+                        <div id="epkSrcAddrWrap"></div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination Address</label>
+                        <div id="epkDstAddrWrap"></div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Service</label>
+                        <div id="epkSvcWrap"></div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Action</label>
+                        <select id="eAction" class="form-select form-select-sm"></select>
+                    </div>
+                </div>
+                <div id="eExtraDecrypt" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">SSL Profile</label>
+                            <input type="text" id="eSslProfile" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Certificate Profile</label>
+                            <input type="text" id="eCertProfile" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div id="eExtraAuth" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Authentication Profile</label>
+                            <input type="text" id="eAuthProfile" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Timeout (sec)</label>
+                            <input type="number" id="eAuthTimeout" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div id="eExtraPBR" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Nexthop IP</label>
+                            <input type="text" id="eNexthop" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Nexthop Interface</label>
+                            <input type="text" id="eNexthopIf" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Priority</label>
+                            <input type="number" id="ePriority" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="eEnabled">
+                    <label class="form-check-label" style="font-size:12px;font-weight:600" for="eEnabled">Enabled</label>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #f1f5f9;padding:12px 20px">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitEdit()" style="font-weight:600">
+                    <i class="fas fa-save me-1"></i>Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ===== CREATE MODAL ===== #}
+<div class="modal fade" id="createModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+            <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:16px 20px">
+                <h5 class="modal-title" id="createModalTitle" style="font-weight:700;font-size:15px">New Rule</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+
+                {# Common fields #}
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <label class="form-label fw-semibold" style="font-size:12px">Rule Name *</label>
+                        <input type="text" id="fName" class="form-control form-control-sm" placeholder="e.g. Decrypt-Corp-HTTPS">
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Source Zone</label>
+                        <select id="fSrcZone" class="form-select form-select-sm" multiple style="height:90px">
+                            {% for z in zone_objects %}
+                            <option value="{{ z.id }}">{{ z.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div style="font-size:10px;color:#94a3b8;margin-top:2px">Ctrl+click for multi-select</div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination Zone</label>
+                        <select id="fDstZone" class="form-select form-select-sm" multiple style="height:90px">
+                            {% for z in zone_objects %}
+                            <option value="{{ z.id }}">{{ z.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Source Address</label>
+                        <div id="pkSrcAddrWrap"></div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Destination Address</label>
+                        <div id="pkDstAddrWrap"></div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold" style="font-size:12px">Service</label>
+                        <div id="pkSvcWrap"></div>
+                    </div>
+                    <div class="col-6" id="actionCol">
+                        <label class="form-label fw-semibold" style="font-size:12px" id="actionLabel">Action</label>
+                        <select id="fAction" class="form-select form-select-sm">
+                            {# filled by JS based on active tab #}
+                        </select>
+                    </div>
+                </div>
+
+                {# Tab-specific extra fields #}
+                <div id="extraDecrypt" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">SSL Profile</label>
+                            <input type="text" id="fSslProfile" class="form-control form-control-sm" placeholder="SSL profile name">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Certificate Profile</label>
+                            <input type="text" id="fCertProfile" class="form-control form-control-sm" placeholder="Certificate profile name">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="extraAuth" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Authentication Profile</label>
+                            <input type="text" id="fAuthProfile" class="form-control form-control-sm" placeholder="Auth profile name">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" style="font-size:12px">Timeout (sec)</label>
+                            <input type="number" id="fAuthTimeout" class="form-control form-control-sm" placeholder="300" min="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="extraPBR" style="display:none">
+                    <div class="row g-3 mb-3">
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Nexthop IP</label>
+                            <input type="text" id="fNexthop" class="form-control form-control-sm" placeholder="10.0.0.1">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Nexthop Interface</label>
+                            <input type="text" id="fNexthopIf" class="form-control form-control-sm" placeholder="eth0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fw-semibold" style="font-size:12px">Priority</label>
+                            <input type="number" id="fPriority" class="form-control form-control-sm" placeholder="100" min="1" max="65535">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="fEnabled" checked>
+                    <label class="form-check-label" style="font-size:12px;font-weight:600" for="fEnabled">Enabled</label>
+                </div>
+
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #f1f5f9;padding:12px 20px">
+                <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitCreate()" style="font-weight:600">
+                    <i class="fas fa-plus me-1"></i>Create Rule
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<style>
+.policy-tab          { background:#f1f5f9; color:#64748b; }
+.policy-tab-active   { background:#3b82f6; color:#fff; }
+.policy-tab:hover:not(.policy-tab-active) { background:#e2e8f0; }
+
+.action-badge {
+    display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+}
+.action-decrypt   { background:#dbeafe;color:#1e40af; }
+.action-nodecrypt { background:#fef3c7;color:#92400e; }
+.action-bypass    { background:#f0fdf4;color:#166534; }
+.action-allow     { background:#dcfce7;color:#166534; }
+.action-deny      { background:#fee2e2;color:#991b1b; }
+.action-forward   { background:#ede9fe;color:#5b21b6; }
+.action-drop      { background:#fee2e2;color:#991b1b; }
+.enabled-badge    { display:inline-block;width:8px;height:8px;border-radius:50%; }
+
+.tag-pill {
+    display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500;
+    background:rgba(59,130,246,.1);color:#60a5fa;margin:1px 2px;white-space:nowrap;
+}
+.rule-row:hover td { background:rgba(255,255,255,.02); }
+.rule-selected td  { background:rgba(59,130,246,.07) !important; }
+.rule-row td       { padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px; }
+.rule-row td:first-child { padding-left:12px; }
+
+/* Loading overlay */
+#policyLoader {
+    position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.6);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+}
+#policyLoader .loader-msg { color:#e2e8f0;font-size:14px;font-weight:600; }
+
+/* Toast */
+.toast-stack { position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px; }
+.toast-item  { padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;
+               box-shadow:0 4px 12px rgba(0,0,0,.3);animation:fadeInUp .2s ease; }
+.toast-success { background:#166534;color:#dcfce7; }
+.toast-error   { background:#991b1b;color:#fee2e2; }
+.toast-warning { background:#92400e;color:#fef3c7; }
+.toast-info    { background:#1e40af;color:#dbeafe; }
+@keyframes fadeInUp { from { opacity:0;transform:translateY(10px); } to { opacity:1;transform:none; } }
+
+/* Confirm dialog */
+#confirmOverlay {
+    position:fixed;inset:0;z-index:9100;background:rgba(15,23,42,.7);
+    display:flex;align-items:center;justify-content:center;
+}
+#confirmBox {
+    background:#1e293b;border-radius:12px;padding:24px 28px;max-width:400px;width:90%;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+</style>
+
+
+<script src="/static/js/picker.js"></script>
+<script>
+let DEVICE_ID     = {{ selected_device_id | tojson }};
+const ACTIVE_TAB  = {{ active_tab | tojson }};
+const NET_OBJECTS = {{ net_objects | tojson }};
+const SVC_OBJECTS = {{ svc_objects | tojson }};
+
+let _currentTab = ACTIVE_TAB;
+
+function switchDevice(id) {
+    DEVICE_ID = id;
+    loadRules();
+}
+let _rules = [];
+let _selected = new Set();
+let _pageSize = 50;
+let _currentPage = 1;
+
+// ---- Pickers ----
+let pkSrcAddr, pkDstAddr, pkSvc;
+
+function _initPickers() {
+    const wSrc = document.getElementById('pkSrcAddrWrap');
+    const wDst = document.getElementById('pkDstAddrWrap');
+    const wSvc = document.getElementById('pkSvcWrap');
+    if (!wSrc._pickerInited) {
+        pkSrcAddr = new ObjectPicker(wSrc, { items: NET_OBJECTS, placeholder: 'Source address…' });
+        pkDstAddr = new ObjectPicker(wDst, { items: NET_OBJECTS, placeholder: 'Destination address…' });
+        pkSvc     = new ObjectPicker(wSvc, { items: SVC_OBJECTS, placeholder: 'Service…', tagClass: 'svc-t' });
+        wSrc._pickerInited = true;
+    }
+}
+
+// ---- Tab management ----
+const TAB_CONFIG = {
+    decryption: {
+        label: 'Decryption Rule',
+        actions: [
+            { value: 'DECRYPT',    label: 'Decrypt' },
+            { value: 'NO_DECRYPT', label: 'No Decrypt' },
+            { value: 'BYPASS',     label: 'Bypass' },
+        ],
+        extraFields: 'extraDecrypt',
+        extraCol: 'SSL Profile',
+        columns: ['#', 'Name', 'Src Zone', 'Source', 'Dst Zone', 'Destination', 'Service', 'Action', 'Profile', 'Status', ''],
+    },
+    auth: {
+        label: 'Authentication Rule',
+        actions: [
+            { value: 'ALLOW', label: 'Allow' },
+            { value: 'DENY',  label: 'Deny' },
+        ],
+        extraFields: 'extraAuth',
+        extraCol: 'Auth Profile',
+        columns: ['#', 'Name', 'Src Zone', 'Source', 'Dst Zone', 'Destination', 'Service', 'Action', 'Auth Profile', 'Status', ''],
+    },
+    pbr: {
+        label: 'PBR Rule',
+        actions: [
+            { value: 'FORWARD', label: 'Forward' },
+            { value: 'DROP',    label: 'Drop' },
+        ],
+        extraFields: 'extraPBR',
+        extraCol: 'Nexthop',
+        columns: ['#', 'Name', 'Src Zone', 'Source', 'Dst Zone', 'Destination', 'Service', 'Action', 'Nexthop', 'Status', ''],
+    },
+};
+
+function setTab(tab) {
+    _currentTab = tab;
+    _selected.clear();
+    _updateBulkBar();
+
+    // Update tab buttons
+    document.querySelectorAll('.policy-tab').forEach(b => {
+        b.classList.remove('policy-tab-active');
+        b.style.color = '';
+    });
+    const btn = document.getElementById('tab_' + tab);
+    if (btn) btn.classList.add('policy-tab-active');
+
+    // Update table header
+    _rebuildHeader();
+
+    // Update URL without reload
+    const url = new URL(window.location);
+    url.searchParams.set('tab', tab);
+    history.replaceState(null, '', url);
+
+    loadRules();
+}
+
+function _rebuildHeader() {
+    const cfg = TAB_CONFIG[_currentTab];
+    const th = document.getElementById('thExtra');
+    th.textContent = cfg.extraCol;
+    th.style.display = '';
+    document.getElementById('thAction').textContent = 'Action';
+}
+
+// ---- Data loading ----
+async function loadRules() {
+    document.getElementById('rulesBody').innerHTML =
+        '<tr><td colspan="12" style="text-align:center;padding:40px;color:#94a3b8;font-size:13px"><i class="fas fa-spinner fa-spin me-2"></i>Loading…</td></tr>';
+
+    try {
+        const r = await fetch('/api/v1/policy/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_group_id: DEVICE_ID, tab: _currentTab }),
+        });
+        const data = await r.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Failed');
+        _rules = data.rules || [];
+        _currentPage = 1;
+        _renderTable();
+    } catch (e) {
+        document.getElementById('rulesBody').innerHTML =
+            `<tr><td colspan="12" style="text-align:center;padding:40px;color:#ef4444;font-size:13px"><i class="fas fa-exclamation-circle me-2"></i>${e.message}</td></tr>`;
+    }
+}
+
+// ---- Rendering ----
+function _g(row, ...keys) {
+    for (const k of keys) {
+        const v = row[k];
+        if (v !== undefined && v !== null && v !== '') return v;
+    }
+    return '—';
+}
+
+function _names(val) {
+    if (!val) return '<span style="color:#94a3b8">Any</span>';
+    if (Array.isArray(val)) {
+        if (val.length === 0) return '<span style="color:#94a3b8">Any</span>';
+        return val.map(v => {
+            const s = typeof v === 'object' ? (v.name || v.id || JSON.stringify(v)) : String(v);
+            return `<span class="tag-pill">${_esc(s)}</span>`;
+        }).join(' ');
+    }
+    if (typeof val === 'object') return `<span class="tag-pill">${_esc(val.name || val.id || '?')}</span>`;
+    return `<span class="tag-pill">${_esc(String(val))}</span>`;
+}
+
+function _actionBadge(action) {
+    if (!action || action === '—') return '<span style="color:#94a3b8">—</span>';
+    const a = String(action).toUpperCase();
+    const cls = {
+        DECRYPT: 'action-decrypt', NO_DECRYPT: 'action-nodecrypt', BYPASS: 'action-bypass',
+        ALLOW: 'action-allow', DENY: 'action-deny',
+        FORWARD: 'action-forward', DROP: 'action-drop',
+    }[a] || 'action-allow';
+    const lbl = { NO_DECRYPT: 'No Decrypt' }[a] || a.charAt(0) + a.slice(1).toLowerCase();
+    return `<span class="action-badge ${cls}">${lbl}</span>`;
+}
+
+function _extraCell(rule) {
+    if (_currentTab === 'decryption') {
+        const p = _g(rule, 'sslProfile', 'ssl_profile', 'profile');
+        return p !== '—' ? `<span class="tag-pill">${_esc(p)}</span>` : '<span style="color:#94a3b8">—</span>';
+    }
+    if (_currentTab === 'auth') {
+        const p = _g(rule, 'authProfile', 'auth_profile', 'authenticationProfile');
+        return p !== '—' ? `<span class="tag-pill">${_esc(p)}</span>` : '<span style="color:#94a3b8">—</span>';
+    }
+    if (_currentTab === 'pbr') {
+        const nh = _g(rule, 'nexthop', 'nextHop', 'nexthopIp');
+        const iface = _g(rule, 'nexthopInterface', 'interface', 'outInterface');
+        if (nh !== '—') return `<code style="font-size:11px">${_esc(nh)}</code>`;
+        if (iface !== '—') return `<code style="font-size:11px">${_esc(iface)}</code>`;
+        return '<span style="color:#94a3b8">—</span>';
+    }
+    return '—';
+}
+
+function _renderTable() {
+    const tbody = document.getElementById('rulesBody');
+    if (!_rules.length) {
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:48px;color:#94a3b8;font-size:13px">No rules found</td></tr>';
+        _renderPagination();
+        return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(_rules.length / _pageSize));
+    if (_currentPage > totalPages) _currentPage = totalPages;
+    const pageStart = (_currentPage - 1) * _pageSize;
+    const pageRules = _rules.slice(pageStart, pageStart + _pageSize);
+
+    tbody.innerHTML = pageRules.map((rule, i) => {
+        const id = _g(rule, 'id', 'uuid');
+        const enabled = rule.enabled !== false && rule.enabled !== 'false';
+        const checked = _selected.has(id) ? 'checked' : '';
+
+        const rowData = encodeURIComponent(JSON.stringify(rule));
+        return `<tr class="rule-row ${_selected.has(id) ? 'rule-selected' : ''}" data-id="${_esc(id)}"
+                    ondblclick="openEdit(decodeURIComponent('${rowData.replace(/'/g,'%27')}'))"
+                    style="${!enabled ? 'opacity:.5' : ''}">
+            <td><input type="checkbox" class="row-cb" data-id="${_esc(id)}" onchange="toggleSelect('${_esc(id)}', this.checked)" ${checked}></td>
+            <td style="color:#94a3b8;font-size:11px;font-weight:600">${pageStart + i + 1}</td>
+            <td style="font-weight:600;font-size:12px">${_esc(_g(rule, 'name'))}</td>
+            <td>${_names(_g(rule, 'sourceZone', 'srcZone', 'source_zone'))}</td>
+            <td>${_names(_g(rule, 'sourceAddress', 'srcAddress', 'source', 'sourceAddresses'))}</td>
+            <td>${_names(_g(rule, 'destinationZone', 'dstZone', 'destination_zone'))}</td>
+            <td>${_names(_g(rule, 'destinationAddress', 'dstAddress', 'destination', 'destinationAddresses'))}</td>
+            <td>${_names(_g(rule, 'service', 'services'))}</td>
+            <td>${_actionBadge(_g(rule, 'action', 'ruleAction'))}</td>
+            <td>${_extraCell(rule)}</td>
+            <td>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" class="toggle-cb" data-id="${_esc(id)}" ${enabled ? 'checked' : ''}
+                           onchange="toggleRule('${_esc(id)}', this.checked)" style="cursor:pointer">
+                </label>
+            </td>
+            <td style="text-align:right;white-space:nowrap">
+                <button onclick="openEdit(decodeURIComponent('${rowData.replace(/'/g,'%27')}'))" title="Edit"
+                        style="padding:3px 7px;border:none;border-radius:5px;background:rgba(59,130,246,.1);color:#60a5fa;cursor:pointer;font-size:11px;margin-right:3px">
+                    <i class="fas fa-pen"></i>
+                </button>
+                <button onclick="deleteOne('${_esc(id)}')" title="Delete"
+                        style="padding:3px 7px;border:none;border-radius:5px;background:#fee2e2;color:#ef4444;cursor:pointer;font-size:11px">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    _renderPagination();
+}
+
+function _renderPagination() {
+    const el = document.getElementById('paginationBar');
+    if (!el) return;
+    const total = _rules.length;
+    if (!total) { el.innerHTML = ''; return; }
+    const totalPages = Math.max(1, Math.ceil(total / _pageSize));
+    const start = (_currentPage - 1) * _pageSize + 1;
+    const end   = Math.min(_currentPage * _pageSize, total);
+    const btnStyle = 'padding:3px 10px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;color:#374151;font-size:12px;cursor:pointer;transition:.1s';
+    const btnDis   = 'padding:3px 10px;border-radius:6px;border:1px solid #e2e8f0;background:#f8fafc;color:#cbd5e1;font-size:12px;cursor:default';
+    el.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#64748b;padding:8px 16px;border-top:1px solid #f1f5f9">
+            <span style="color:#94a3b8">${start}–${end} из ${total}</span>
+            <span style="color:#cbd5e1">|</span>
+            <span>На странице:</span>
+            ${[10,20,50,100].map(n => `
+                <button onclick="setPageSize(${n})"
+                        style="${n===_pageSize
+                            ? 'padding:3px 10px;border-radius:6px;border:1px solid #3b82f6;background:#eff6ff;color:#2563eb;font-size:12px;font-weight:700;cursor:pointer'
+                            : btnStyle}">${n}</button>
+            `).join('')}
+            <span style="color:#cbd5e1;margin-left:4px">|</span>
+            <button onclick="gotoPage(1)"        style="${_currentPage===1?btnDis:btnStyle}" ${_currentPage===1?'disabled':''}>«</button>
+            <button onclick="gotoPage(${_currentPage-1})" style="${_currentPage===1?btnDis:btnStyle}" ${_currentPage===1?'disabled':''}>‹</button>
+            <span style="font-weight:600;color:#374151">${_currentPage} / ${totalPages}</span>
+            <button onclick="gotoPage(${_currentPage+1})" style="${_currentPage===totalPages?btnDis:btnStyle}" ${_currentPage===totalPages?'disabled':''}>›</button>
+            <button onclick="gotoPage(${totalPages})"     style="${_currentPage===totalPages?btnDis:btnStyle}" ${_currentPage===totalPages?'disabled':''}>»</button>
+        </div>`;
+}
+
+function setPageSize(n) {
+    _pageSize = n;
+    _currentPage = 1;
+    _renderTable();
+}
+
+function gotoPage(n) {
+    const totalPages = Math.max(1, Math.ceil(_rules.length / _pageSize));
+    _currentPage = Math.max(1, Math.min(n, totalPages));
+    _renderTable();
+}
+
+// ---- Selection ----
+function toggleSelect(id, checked) {
+    if (checked) _selected.add(id); else _selected.delete(id);
+    const row = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+    if (row) row.classList.toggle('rule-selected', checked);
+    _updateBulkBar();
+}
+
+function toggleSelectAll(cb) {
+    // Select/deselect only the currently visible page
+    const pageStart = (_currentPage - 1) * _pageSize;
+    _rules.slice(pageStart, pageStart + _pageSize).forEach(r => {
+        const id = _g(r, 'id', 'uuid');
+        if (cb.checked) _selected.add(id); else _selected.delete(id);
+    });
+    document.querySelectorAll('.row-cb').forEach(c => {
+        c.checked = cb.checked;
+        const row = c.closest('tr');
+        if (row) row.classList.toggle('rule-selected', cb.checked);
+    });
+    _updateBulkBar();
+}
+
+function clearSelection() {
+    _selected.clear();
+    document.querySelectorAll('.row-cb').forEach(c => c.checked = false);
+    document.querySelectorAll('.rule-selected').forEach(r => r.classList.remove('rule-selected'));
+    document.getElementById('selectAll').checked = false;
+    _updateBulkBar();
+}
+
+function _updateBulkBar() {
+    const bar = document.getElementById('bulkBar');
+    if (_selected.size > 0) {
+        bar.style.display = 'flex';
+        document.getElementById('bulkCount').textContent = `${_selected.size} rule${_selected.size > 1 ? 's' : ''} selected`;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+// ---- Delete ----
+async function deleteOne(id) {
+    if (!await confirmDialog('Delete rule', 'This rule will be deleted on the NGFW. Are you sure?', 'Delete', true)) return;
+    await _doDelete([id]);
+}
+
+async function bulkDelete() {
+    const ids = [..._selected];
+    if (!await confirmDialog('Delete rules', `Delete ${ids.length} selected rule(s)?`, 'Delete', true)) return;
+    await _doDelete(ids);
+}
+
+async function _doDelete(ids) {
+    showLoading('Deleting…');
+    try {
+        const r = await fetch('/api/v1/policy/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_group_id: DEVICE_ID, tab: _currentTab, ids }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok' || data.status === 'partial') {
+            if (data.status === 'partial')
+                showToast(`Partially deleted — ${data.failed?.length || 0} failed`, 'warning');
+            else
+                showToast(`Deleted ${ids.length} rule(s)`, 'success');
+            clearSelection();
+            await loadRules();
+        } else {
+            showToast(data.message || 'Delete failed', 'error');
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ---- Toggle enable/disable ----
+async function toggleRule(id, enabled) {
+    try {
+        const r = await fetch('/api/v1/policy/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_group_id: DEVICE_ID, tab: _currentTab, rule_id: id, enabled }),
+        });
+        const data = await r.json();
+        if (data.status !== 'ok') {
+            showToast('Toggle failed', 'error');
+            await loadRules();
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+// ---- Create ----
+function openCreate() {
+    _initPickers();
+    const cfg = TAB_CONFIG[_currentTab];
+
+    document.getElementById('createModalTitle').textContent = `New ${cfg.label}`;
+    document.getElementById('fName').value = '';
+    document.getElementById('fEnabled').checked = true;
+    document.getElementById('fSslProfile').value = '';
+    document.getElementById('fCertProfile').value = '';
+    document.getElementById('fAuthProfile').value = '';
+    document.getElementById('fAuthTimeout').value = '';
+    document.getElementById('fNexthop').value = '';
+    document.getElementById('fNexthopIf').value = '';
+    document.getElementById('fPriority').value = '';
+    pkSrcAddr.clear(); pkDstAddr.clear(); pkSvc.clear();
+
+    // Reset zone selects
+    Array.from(document.getElementById('fSrcZone').options).forEach(o => o.selected = false);
+    Array.from(document.getElementById('fDstZone').options).forEach(o => o.selected = false);
+
+    // Show correct action options
+    const sel = document.getElementById('fAction');
+    sel.innerHTML = cfg.actions.map(a => `<option value="${a.value}">${a.label}</option>`).join('');
+
+    // Show correct extra fields
+    ['extraDecrypt', 'extraAuth', 'extraPBR'].forEach(id => {
+        document.getElementById(id).style.display = id === cfg.extraFields ? '' : 'none';
+    });
+
+    new bootstrap.Modal(document.getElementById('createModal')).show();
+}
+
+async function submitCreate() {
+    const name = document.getElementById('fName').value.trim();
+    if (!name) { showToast('Name is required', 'warning'); return; }
+
+    const srcZones = Array.from(document.getElementById('fSrcZone').selectedOptions).map(o => o.value);
+    const dstZones = Array.from(document.getElementById('fDstZone').selectedOptions).map(o => o.value);
+    const srcAddrs = pkSrcAddr.getSelectedIds();
+    const dstAddrs = pkDstAddr.getSelectedIds();
+    const services = pkSvc.getSelectedIds();
+    const action   = document.getElementById('fAction').value;
+    const enabled  = document.getElementById('fEnabled').checked;
+
+    let payload = {
+        name,
+        deviceGroupId: DEVICE_ID,
+        enabled,
+        action,
+        sourceZone:           srcZones,
+        destinationZone:      dstZones,
+        sourceAddress:        srcAddrs,
+        destinationAddress:   dstAddrs,
+        service:              services,
+    };
+
+    if (_currentTab === 'decryption') {
+        const sslProfile  = document.getElementById('fSslProfile').value.trim();
+        const certProfile = document.getElementById('fCertProfile').value.trim();
+        if (sslProfile)  payload.sslProfile  = sslProfile;
+        if (certProfile) payload.certificateProfile = certProfile;
+    } else if (_currentTab === 'auth') {
+        const authProfile = document.getElementById('fAuthProfile').value.trim();
+        const timeout     = document.getElementById('fAuthTimeout').value;
+        if (authProfile) payload.authProfile = authProfile;
+        if (timeout)     payload.timeout = parseInt(timeout);
+    } else if (_currentTab === 'pbr') {
+        const nexthop   = document.getElementById('fNexthop').value.trim();
+        const nexthopIf = document.getElementById('fNexthopIf').value.trim();
+        const priority  = document.getElementById('fPriority').value;
+        if (nexthop)   payload.nexthop   = nexthop;
+        if (nexthopIf) payload.nexthopInterface = nexthopIf;
+        if (priority)  payload.priority  = parseInt(priority);
+    }
+
+    showLoading('Creating…');
+    try {
+        const r = await fetch('/api/v1/policy/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_group_id: DEVICE_ID, tab: _currentTab, payload }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            bootstrap.Modal.getInstance(document.getElementById('createModal')).hide();
+            showToast('Rule created', 'success');
+            await loadRules();
+        } else {
+            showToast(data.message || 'Create failed', 'error');
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ---- Edit ----
+let _editModal = null;
+let epkSrcAddr, epkDstAddr, epkSvc;
+
+function _initEditPickers() {
+    const ws = document.getElementById('epkSrcAddrWrap');
+    if (ws._pickerInited) return;
+    epkSrcAddr = new ObjectPicker(ws, { items: NET_OBJECTS, placeholder: 'Source address…' });
+    epkDstAddr = new ObjectPicker(document.getElementById('epkDstAddrWrap'), { items: NET_OBJECTS, placeholder: 'Destination address…' });
+    epkSvc     = new ObjectPicker(document.getElementById('epkSvcWrap'), { items: SVC_OBJECTS, placeholder: 'Service…', tagClass: 'svc-t' });
+    ws._pickerInited = true;
+}
+
+function openEdit(jsonStr) {
+    let rule;
+    try { rule = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr; } catch { showToast('Cannot parse rule', 'error'); return; }
+
+    _initEditPickers();
+    const cfg = TAB_CONFIG[_currentTab];
+    const id  = _g(rule, 'id', 'uuid');
+
+    document.getElementById('eId').value      = id;
+    document.getElementById('eName').value    = _g(rule, 'name') === '—' ? '' : _g(rule, 'name');
+    document.getElementById('eEnabled').checked = rule.enabled !== false;
+
+    // Action options
+    const eSel = document.getElementById('eAction');
+    eSel.innerHTML = cfg.actions.map(a => `<option value="${a.value}">${a.label}</option>`).join('');
+    const curAction = String(_g(rule, 'action', 'ruleAction')).toUpperCase();
+    eSel.value = curAction !== '—' ? curAction : cfg.actions[0].value;
+
+    // Extra fields
+    ['eExtraDecrypt','eExtraAuth','eExtraPBR'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById(cfg.extraFields.replace('extra','eExtra')).style.display = '';
+
+    if (_currentTab === 'decryption') {
+        document.getElementById('eSslProfile').value  = _g(rule, 'sslProfile', 'ssl_profile') === '—' ? '' : _g(rule, 'sslProfile', 'ssl_profile');
+        document.getElementById('eCertProfile').value = _g(rule, 'certificateProfile', 'certProfile') === '—' ? '' : _g(rule, 'certificateProfile', 'certProfile');
+    } else if (_currentTab === 'auth') {
+        document.getElementById('eAuthProfile').value  = _g(rule, 'authProfile', 'authenticationProfile') === '—' ? '' : _g(rule, 'authProfile', 'authenticationProfile');
+        document.getElementById('eAuthTimeout').value  = _g(rule, 'timeout') === '—' ? '' : _g(rule, 'timeout');
+    } else if (_currentTab === 'pbr') {
+        document.getElementById('eNexthop').value   = _g(rule, 'nexthop', 'nextHop') === '—' ? '' : _g(rule, 'nexthop', 'nextHop');
+        document.getElementById('eNexthopIf').value = _g(rule, 'nexthopInterface', 'interface') === '—' ? '' : _g(rule, 'nexthopInterface', 'interface');
+        document.getElementById('ePriority').value  = _g(rule, 'priority') === '—' ? '' : _g(rule, 'priority');
+    }
+
+    // Zone selectors
+    const toIds = v => Array.isArray(v) ? v.map(x => typeof x === 'object' ? (x.id || x) : x) : [];
+    const selZones = (selId, ids) => {
+        Array.from(document.getElementById(selId).options).forEach(o => { o.selected = ids.includes(o.value); });
+    };
+    selZones('eSrcZone', toIds(_g(rule, 'sourceZone', 'srcZone')));
+    selZones('eDstZone', toIds(_g(rule, 'destinationZone', 'dstZone')));
+
+    // Address/service pickers
+    const toObjIds = v => {
+        if (!v || v === '—') return [];
+        if (Array.isArray(v)) return v.map(x => typeof x === 'object' ? (x.id || x) : x);
+        return [];
+    };
+    const netItems = NET_OBJECTS.filter(o => toObjIds(_g(rule, 'sourceAddress','srcAddress','source','sourceAddresses')).includes(o.id));
+    epkSrcAddr.clear(); netItems.forEach(i => epkSrcAddr._selectItem && epkSrcAddr._selectItem(i));
+    const dstItems = NET_OBJECTS.filter(o => toObjIds(_g(rule, 'destinationAddress','dstAddress','destination','destinationAddresses')).includes(o.id));
+    epkDstAddr.clear(); dstItems.forEach(i => epkDstAddr._selectItem && epkDstAddr._selectItem(i));
+    const svcItems = SVC_OBJECTS.filter(o => toObjIds(_g(rule, 'service','services')).includes(o.id));
+    epkSvc.clear(); svcItems.forEach(i => epkSvc._selectItem && epkSvc._selectItem(i));
+
+    _editModal ||= new bootstrap.Modal(document.getElementById('editModal'));
+    _editModal.show();
+}
+
+async function submitEdit() {
+    const name = document.getElementById('eName').value.trim();
+    if (!name) { showToast('Name is required', 'warning'); return; }
+    const id      = document.getElementById('eId').value;
+    const action  = document.getElementById('eAction').value;
+    const enabled = document.getElementById('eEnabled').checked;
+    const srcZones = Array.from(document.getElementById('eSrcZone').selectedOptions).map(o => o.value);
+    const dstZones = Array.from(document.getElementById('eDstZone').selectedOptions).map(o => o.value);
+
+    let payload = {
+        id, name, deviceGroupId: DEVICE_ID, enabled, action,
+        sourceZone: srcZones, destinationZone: dstZones,
+        sourceAddress:      epkSrcAddr.getSelectedIds(),
+        destinationAddress: epkDstAddr.getSelectedIds(),
+        service:            epkSvc.getSelectedIds(),
+    };
+    if (_currentTab === 'decryption') {
+        const v1 = document.getElementById('eSslProfile').value.trim();
+        const v2 = document.getElementById('eCertProfile').value.trim();
+        if (v1) payload.sslProfile = v1;
+        if (v2) payload.certificateProfile = v2;
+    } else if (_currentTab === 'auth') {
+        const v1 = document.getElementById('eAuthProfile').value.trim();
+        const v2 = document.getElementById('eAuthTimeout').value;
+        if (v1) payload.authProfile = v1;
+        if (v2) payload.timeout = parseInt(v2);
+    } else if (_currentTab === 'pbr') {
+        const v1 = document.getElementById('eNexthop').value.trim();
+        const v2 = document.getElementById('eNexthopIf').value.trim();
+        const v3 = document.getElementById('ePriority').value;
+        if (v1) payload.nexthop = v1;
+        if (v2) payload.nexthopInterface = v2;
+        if (v3) payload.priority = parseInt(v3);
+    }
+
+    showLoading('Saving…');
+    try {
+        const r = await fetch('/api/v1/policy/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_group_id: DEVICE_ID, tab: _currentTab, payload }),
+        });
+        const data = await r.json();
+        if (data.status === 'ok') {
+            _editModal.hide();
+            showToast('Rule updated', 'success');
+            await loadRules();
+        } else {
+            showToast(data.message || 'Update failed', 'error');
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ---- Utils ----
+function _esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, type='info') {
+    const stack = document.getElementById('toastStack');
+    const el = document.createElement('div');
+    el.className = `toast-item toast-${type}`;
+    el.textContent = msg;
+    stack.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+
+function showLoading(msg='Please wait…') {
+    document.getElementById('policyLoaderMsg').textContent = msg;
+    document.getElementById('policyLoader').style.display = 'flex';
+}
+function hideLoading() {
+    document.getElementById('policyLoader').style.display = 'none';
+}
+
+function confirmDialog(title, msg, btnLabel='Confirm', danger=true) {
+    return new Promise(resolve => {
+        document.getElementById('confirmTitle').textContent = title;
+        document.getElementById('confirmMsg').textContent   = msg;
+        const ok = document.getElementById('confirmOkBtn');
+        ok.textContent = btnLabel;
+        ok.style.background = danger ? '#ef4444' : '#3b82f6';
+        ok.style.color = '#fff';
+        const overlay = document.getElementById('confirmOverlay');
+        overlay.style.display = 'flex';
+        const done = (v) => { overlay.style.display = 'none'; resolve(v); };
+        ok.onclick = () => done(true);
+        document.getElementById('confirmCancelBtn').onclick = () => done(false);
+    });
+}
+
+// ---- Highlight / jump-to-rule (from analyzer links) ----
+function _hlRow(extId, bg, borderColor) {
+    const row = document.querySelector(`tr[data-id="${CSS.escape(extId)}"]`);
+    if (!row) return;
+    row.style.background   = bg;
+    row.style.boxShadow    = `inset 3px 0 0 ${borderColor}`;
+    row.style.transition   = 'background 1.5s, box-shadow 1.5s';
+    setTimeout(() => {
+        row.style.background = '';
+        row.style.boxShadow  = '';
+    }, 4000);
+}
+
+function _applyHighlight() {
+    const params     = new URLSearchParams(window.location.search);
+    const hl         = params.get('hl');
+    const hlShadow   = params.get('hl_shadow');    // ext_id перекрывающего (синий)
+    const hlShadowed = params.get('hl_shadowed');  // ext_id перекрытого (красный)
+    const hlPrimary  = params.get('hl_primary') || 'shadow'; // куда прыгать
+
+    const jumpId = hl || (hlPrimary === 'shadowed' ? hlShadowed : hlShadow);
+    if (!jumpId) return;
+
+    // Find index in _rules by ext_id (rules from NGFW API have .id = ext_id)
+    const idx = _rules.findIndex(r => {
+        const rid = _g(r, 'id', 'uuid');
+        return rid === jumpId;
+    });
+    if (idx >= 0) {
+        _currentPage = Math.floor(idx / _pageSize) + 1;
+        _renderTable();
+    }
+
+    setTimeout(() => {
+        if (hl)         _hlRow(hl,         'rgba(59,130,246,.15)', '#3b82f6');
+        if (hlShadow)   _hlRow(hlShadow,   'rgba(59,130,246,.15)', '#3b82f6');
+        if (hlShadowed) _hlRow(hlShadowed, 'rgba(239,68,68,.15)',  '#ef4444');
+        const row = document.querySelector(`tr[data-id="${CSS.escape(jumpId)}"]`);
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+}
+
+// ---- Init ----
+document.addEventListener('DOMContentLoaded', () => {
+    _rebuildHeader();
+    loadRules().then(() => _applyHighlight());
+});
+</script>
+
+{% endblock %}

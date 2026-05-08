@@ -1,0 +1,374 @@
+<aside class="app-sidebar" {% if is_ro %}style="border-right:3px solid #f97316"{% endif %}>
+    <div class="sidebar-brand" {% if is_ro %}style="background:rgba(249,115,22,.08);border-bottom:1px solid rgba(249,115,22,.3)"{% endif %}>
+        <div style="width:32px;height:32px;background:{% if is_ro %}linear-gradient(135deg,#c2410c,#f97316){% else %}linear-gradient(135deg,#1d4ed8,#3b82f6){% endif %};border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:10px;flex-shrink:0">
+            <i class="fas fa-shield-halved" style="color:#fff;font-size:15px"></i>
+        </div>
+        <div>
+            <div class="sidebar-brand-text">NGFW Manager
+                {% if is_ro %}<span style="margin-left:7px;font-size:10px;font-weight:800;padding:1px 6px;border-radius:4px;background:rgba(249,115,22,.2);color:#fb923c;border:1px solid rgba(249,115,22,.4);vertical-align:middle;letter-spacing:.5px">RO</span>{% endif %}
+            </div>
+            <span class="sidebar-brand-sub">Policy Editor</span>
+        </div>
+    </div>
+
+    {# Determine active section from URL path #}
+    {% set path = request.url.path %}
+    {% if path in ['/', '/nat', '/objects'] %}
+        {% set active_sec = 'sec' %}
+    {% elif path == '/logs' %}
+        {% set active_sec = 'log' %}
+    {% elif path in ['/system', '/policy'] %}
+        {% set active_sec = 'sys' %}
+    {% else %}
+        {% set active_sec = 'dash' %}
+    {% endif %}
+
+    {# ── Main section tabs (4 items) ── #}
+    <div style="display:flex;gap:3px;padding:8px 10px 0">
+
+        <a href="/"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
+                  {% if active_sec == 'sec' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_sec') }}">
+            <i class="fas fa-layer-group" style="font-size:11px;display:block;margin-bottom:2px"></i>SEC
+        </a>
+
+        <a href="/logs"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
+                  {% if active_sec == 'log' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_log') }}">
+            <i class="fas fa-list-alt" style="font-size:11px;display:block;margin-bottom:2px"></i>LOG
+        </a>
+
+        <a href="/system"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;transition:.15s;
+                  {% if active_sec == 'sys' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_sys') }}">
+            <i class="fas fa-server" style="font-size:11px;display:block;margin-bottom:2px"></i>SYS
+        </a>
+
+        <a href="/dashboard"
+           style="flex:1;text-align:center;padding:7px 4px;border-radius:7px 7px 0 0;font-size:10px;font-weight:700;text-decoration:none;position:relative;transition:.15s;
+                  {% if active_sec == 'dash' %}background:rgba(59,130,246,.2);color:#60a5fa;border-bottom:2px solid #3b82f6;{% else %}background:rgba(255,255,255,.04);color:#4b5563;border-bottom:2px solid transparent;{% endif %}"
+           title="{{ t('nav_dash') }}">
+            <i class="fas fa-gauge-high" style="font-size:11px;display:block;margin-bottom:2px"></i>DASH
+            {% if analysis_issue_count > 0 %}
+            <span style="position:absolute;top:3px;right:3px;background:#ef4444;color:#fff;font-size:8px;font-weight:800;
+                         padding:1px 3px;border-radius:8px;line-height:1.4;min-width:13px;text-align:center">
+                {{ analysis_issue_count }}
+            </span>
+            {% endif %}
+        </a>
+    </div>
+
+    {# ── Sub-nav ── #}
+    <div style="display:flex;gap:2px;padding:0 10px 5px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02)">
+
+        {% if active_sec == 'sec' %}
+            {% for href, label in [('/', 'Rules'), ('/nat', 'NAT'), ('/objects', 'Objects')] %}
+            <a href="{{ href }}"
+               style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
+                      {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
+                {{ label }}
+            </a>
+            {% endfor %}
+
+        {% elif active_sec == 'log' %}
+            <span style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;color:#93c5fd;border-bottom:2px solid #3b82f6">
+                Traffic &amp; Logs
+            </span>
+
+        {% elif active_sec == 'sys' %}
+            {% for href, label in [('/system', 'System'), ('/policy', 'Policy')] %}
+            <a href="{{ href }}"
+               style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
+                      {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
+                {{ label }}
+            </a>
+            {% endfor %}
+
+        {% elif active_sec == 'dash' %}
+            {% for href, label in [('/dashboard', 'Overview'), ('/analyzer', 'Analyzer'), ('/changelog', 'Changes'), ('/diff', 'Diff')] %}
+            <a href="{{ href }}"
+               style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
+                      {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
+                {{ label }}
+            </a>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    {# ── Scroll area: page-specific content ── #}
+    <div class="sidebar-scroll">
+
+        {# ═══ SEC pages: rules / nat / objects ═══ #}
+        {% if active_sec == 'sec' %}
+
+            {# --- Macro: one device card (works for both / and /nat) --- #}
+            {% macro device_card(gid, data, url_base, su_id='') %}
+            <div class="sidebar-device" data-su="{{ su_id }}" style="margin-left:8px">
+                <div class="sidebar-device-header {{ 'open' if gid == current_device_id else '' }}"
+                     onclick="toggleDevice(this, '{{ gid }}')">
+                    <i class="fas fa-hdd" style="color:#64748b;font-size:11px;flex-shrink:0"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ data.name }}</span>
+                    {% if not is_ro %}
+                    <button onclick="event.stopPropagation();doSync('{{ gid }}')" title="Sync"
+                            style="background:none;border:none;padding:2px 4px;cursor:pointer;color:#475569;border-radius:4px;line-height:1;transition:.15s;flex-shrink:0"
+                            onmouseover="this.style.color='#3b82f6';this.style.background='rgba(59,130,246,.15)'"
+                            onmouseout="this.style.color='#475569';this.style.background='none'">
+                        <i class="fas fa-rotate" style="font-size:10px"></i>
+                    </button>
+                    {% endif %}
+                    <i class="fas fa-chevron-right chevron"></i>
+                </div>
+                <div class="sidebar-folders {{ 'open' if gid == current_device_id else '' }}" id="dev_{{ gid }}">
+                    {% for section_key, badge_label in [('pre','PRE'),('default','DEFAULT'),('post','POST')] %}
+                    {% if data.sections[section_key] %}
+                    <div style="padding:{{ '4px' if loop.first else '6px' }} 0 2px 8px;{% if not loop.first %}margin-top:4px;{% endif %}">
+                        <span class="section-badge {{ section_key }}">{{ badge_label }}</span>
+                    </div>
+                    {% for f in data.sections[section_key] %}
+                    <a href="{{ url_base }}?folder_id={{ f.id }}"
+                       class="folder-link {{ 'active' if f.id|string == selected_folder_id|string else '' }}">
+                        <i class="fas fa-folder{{ '-open' if f.id|string == selected_folder_id|string else '' }}" style="font-size:11px;flex-shrink:0"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ f.name }}">{{ f.name }}</span>
+                        <span class="folder-count">{{ f.rules_count }}</span>
+                    </a>
+                    {% endfor %}
+                    {% endif %}
+                    {% endfor %}
+                    {% if not is_ro %}
+                    <button onclick="openCreateFolder('{{ gid }}')"
+                            style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;padding:5px 10px;color:#475569;font-size:11px;cursor:pointer;border-radius:5px;margin-top:4px;transition:.15s"
+                            onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background='none'">
+                        <i class="fas fa-plus" style="font-size:10px"></i> {{ t('sidebar_add_folder') }}
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endmacro %}
+
+            {# ── URL base: / for rules, /nat for nat ── #}
+            {% set url_base = '/nat' if path == '/nat' else '/' %}
+
+            {# ── Always group by СУ ── #}
+            <div class="sidebar-section-label">{{ t('sidebar_devices') }}</div>
+
+            {% if su_list %}
+            {% for su in su_list %}
+            {# When a specific СУ is selected (dashboard/analyzer), hide other СУ groups #}
+            {% if not (selected_su_id is defined and selected_su_id and su.id != selected_su_id) %}
+            {# СУ group with collapse toggle #}
+            <div style="margin-top:2px;border-top:1px solid rgba(255,255,255,.05)">
+                {# СУ header row — click the name/chevron to collapse #}
+                <div style="display:flex;align-items:center;gap:3px;padding:5px 8px 3px;cursor:pointer"
+                     onclick="toggleSU('su_{{ su.id | replace('-','_') }}')">
+                    <i class="fas fa-chevron-down" id="chev_{{ su.id | replace('-','_') }}"
+                       style="color:#334155;font-size:8px;flex-shrink:0;transition:.2s;transform:rotate(0deg)"></i>
+                    <i class="fas fa-server" style="color:{% if su.id == current_su_id %}#3b82f6{% else %}#475569{% endif %};font-size:10px;flex-shrink:0"></i>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:11px;font-weight:700;color:{% if su.id == current_su_id %}#e2e8f0{% else %}#94a3b8{% endif %};overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                             title="{{ su.host }}">{{ su.name }}</div>
+                        <div style="font-size:9px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ su.host }}</div>
+                    </div>
+                    {% if not is_ro %}
+                    <button onclick="event.stopPropagation();renameSUInline('{{ su.id }}', '{{ su.name | replace("'", "\\'") }}')"
+                            title="Rename" style="background:none;border:none;padding:2px 4px;cursor:pointer;color:#334155;border-radius:4px;line-height:1;transition:.15s"
+                            onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#334155'">
+                        <i class="fas fa-pencil" style="font-size:9px"></i>
+                    </button>
+                    <button onclick="event.stopPropagation();syncSU('{{ su.id }}')" title="Sync this СУ"
+                            style="background:none;border:none;padding:2px 4px;cursor:pointer;color:#334155;border-radius:4px;line-height:1;transition:.15s"
+                            onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='#334155'">
+                        <i class="fas fa-rotate" style="font-size:9px"></i>
+                    </button>
+                    {% endif %}
+                </div>
+                {# Devices under this СУ — collapsible #}
+                <div id="su_{{ su.id | replace('-','_') }}" style="overflow:hidden">
+                {% if su_tree is defined and su.id in su_tree %}
+                    {% for gid, data in su_tree[su.id].devices.items() %}
+                    {{ device_card(gid, data, url_base, su.id) }}
+                    {% endfor %}
+                {% elif su.id == current_su_id and tree is defined %}
+                    {% for gid, data in tree.items() %}
+                    {{ device_card(gid, data, url_base, su.id) }}
+                    {% endfor %}
+                {% else %}
+                    <div style="padding:6px 10px 6px 28px;font-size:11px;color:#334155;font-style:italic">
+                        No devices — <a href="#" onclick="syncSU('{{ su.id }}');return false" style="color:#3b82f6;text-decoration:none">Sync</a>
+                    </div>
+                {% endif %}
+                </div>
+            </div>
+            {% endif %}{# end su filter #}
+            {% endfor %}
+
+            {# + Add Connection button #}
+            {% if not is_ro %}
+            <button onclick="showAddSUModal()"
+                    style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;padding:7px 12px;color:#3b82f6;font-size:11px;font-weight:600;cursor:pointer;border-radius:5px;margin-top:6px;transition:.15s;border-top:1px solid rgba(255,255,255,.05)"
+                    onmouseover="this.style.background='rgba(59,130,246,.08)'" onmouseout="this.style.background='none'">
+                <i class="fas fa-plus" style="font-size:10px"></i> Add Connection
+            </button>
+            {% endif %}
+
+            {% else %}
+            <div style="padding:24px 16px;text-align:center;color:#475569;font-size:12px">
+                <i class="fas fa-rotate" style="font-size:24px;opacity:.3;display:block;margin-bottom:8px"></i>
+                {{ t('sidebar_no_devices') }}<br>{{ t('sidebar_click_sync') }}
+            </div>
+            {% endif %}
+
+        {# ── Objects: device list ── #}
+        {% elif active_sec == 'sec' and path == '/objects' %}
+            <div class="sidebar-section-label">{{ t('lbl_device') }}</div>
+            {% if devices is defined and devices %}
+                {% for dev in devices %}
+                <a href="/objects?su_id={{ selected_su_id }}&device_id={{ dev.device_id }}&type_filter={{ type_filter or 'net' }}"
+                   class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
+                    <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
+                </a>
+                {% endfor %}
+            {% else %}
+                <div style="padding:16px;font-size:12px;color:#475569;text-align:center">{{ t('sidebar_no_devices') }}</div>
+            {% endif %}
+
+        {# ── LOG: log source info ── #}
+        {% elif active_sec == 'log' %}
+            <div class="sidebar-section-label">Log Source</div>
+            <div style="padding:10px 12px;font-size:11px;color:#64748b;line-height:1.5">
+                <i class="fas fa-globe" style="color:#3b82f6;margin-right:5px"></i>
+                <strong style="color:#94a3b8">Global logs</strong><br>
+                <span style="color:#475569">Logs are collected across all devices. Use filters to narrow results.</span>
+            </div>
+            {% if log_ttl_hours is defined %}
+            <div style="padding:4px 12px 8px">
+                <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">TTL</div>
+                <div style="font-size:11px;color:#64748b">Cache auto-purges after <strong style="color:#f59e0b">{{ log_ttl_hours }}h</strong></div>
+            </div>
+            {% endif %}
+
+        {# ── SYS / POL: device list ── #}
+        {% elif active_sec == 'sys' %}
+            <div class="sidebar-section-label">{{ t('lbl_device') }}</div>
+            {% if devices is defined and devices %}
+                {% for dev in devices %}
+                <a href="{{ path }}?su_id={{ selected_su_id }}&device_id={{ dev.device_id }}{% if active_tab is defined %}&tab={{ active_tab }}{% endif %}"
+                   class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
+                    <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
+                </a>
+                {% endfor %}
+            {% else %}
+                <div style="padding:16px;font-size:12px;color:#475569;text-align:center">{{ t('sidebar_no_devices') }}</div>
+            {% endif %}
+
+        {# ── DASH: device list on /dashboard, neutral on other dash pages ── #}
+        {% elif active_sec == 'dash' %}
+            {% if path == '/dashboard' %}
+                <div class="sidebar-section-label">{{ t('lbl_device') }}</div>
+                {% if devices is defined and devices %}
+                    <a href="/dashboard?su_id={{ selected_su_id }}"
+                       class="folder-link {{ 'active' if not selected_device_id else '' }}"
+                       style="gap:6px">
+                        <i class="fas fa-globe" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t('dash_all_devices') }}</span>
+                    </a>
+                    {% for dev in devices %}
+                    <a href="/dashboard?su_id={{ selected_su_id }}&device_id={{ dev.device_id }}"
+                       class="folder-link {{ 'active' if dev.device_id == selected_device_id else '' }}">
+                        <i class="fas fa-network-wired" style="font-size:11px;flex-shrink:0;color:#3b82f6"></i>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ dev.name }}">{{ dev.name }}</span>
+                    </a>
+                    {% endfor %}
+                {% else %}
+                    <div style="padding:16px;font-size:12px;color:#475569;text-align:center">{{ t('sidebar_no_devices') }}</div>
+                {% endif %}
+            {% else %}
+                <div style="padding:20px 14px;text-align:center;color:#334155;font-size:11px">
+                    <i class="fas fa-gauge-high" style="font-size:20px;opacity:.2;display:block;margin-bottom:8px"></i>
+                    Dashboard &amp; Analytics
+                </div>
+            {% endif %}
+        {% endif %}
+
+    </div>{# /sidebar-scroll #}
+
+    <div class="sidebar-footer">
+        <div style="width:30px;height:30px;background:#1e293b;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="fas fa-user" style="color:#64748b;font-size:12px"></i>
+        </div>
+        <div class="sidebar-user">
+            <div class="sidebar-user-name">{{ user.username }}</div>
+            <div class="sidebar-user-host">{{ user.host }}</div>
+        </div>
+
+        {# Version badge #}
+        <span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;white-space:nowrap;
+                     {% if app_channel == 'stable' %}background:rgba(34,197,94,.15);color:#4ade80
+                     {% elif app_channel == 'test' %}background:rgba(245,158,11,.15);color:#fbbf24
+                     {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}"
+              title="NGFW Manager v{{ app_version }}">v{{ app_version }}</span>
+
+        {# Language switcher #}
+        <div style="display:flex;gap:3px">
+            <button onclick="setLang('en')"
+                    style="padding:2px 5px;border-radius:4px;font-size:9px;font-weight:700;border:none;cursor:pointer;transition:.15s;
+                           {% if lang == 'en' %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#475569{% endif %}">EN</button>
+            <button onclick="setLang('ru')"
+                    style="padding:2px 5px;border-radius:4px;font-size:9px;font-weight:700;border:none;cursor:pointer;transition:.15s;
+                           {% if lang == 'ru' %}background:rgba(59,130,246,.3);color:#60a5fa{% else %}background:rgba(255,255,255,.06);color:#475569{% endif %}">RU</button>
+        </div>
+
+        <a href="/logout" title="{{ t('btn_logout') }}"
+           style="color:#475569;text-decoration:none;padding:4px 5px;border-radius:6px;transition:.15s"
+           onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#475569'">
+            <i class="fas fa-power-off"></i>
+        </a>
+    </div>
+</aside>
+
+<script>
+function toggleDevice(el, gid) {
+    el.classList.toggle('open');
+    const panel = document.getElementById('dev_' + gid);
+    if (panel) panel.classList.toggle('open');
+}
+function toggleSU(panelId) {
+    const panel = document.getElementById(panelId);
+    const chevId = 'chev_' + panelId.slice(3); // 'su_xxx' → 'chev_xxx'
+    const chev = document.getElementById(chevId);
+    if (!panel) return;
+    const collapsed = panel.style.maxHeight === '0px';
+    if (collapsed) {
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+        panel.style.maxHeight = '';  // remove so auto height works
+        if (chev) chev.style.transform = 'rotate(0deg)';
+        sessionStorage.setItem('su_' + panelId, 'open');
+    } else {
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+        requestAnimationFrame(() => { panel.style.maxHeight = '0px'; });
+        if (chev) chev.style.transform = 'rotate(-90deg)';
+        sessionStorage.setItem('su_' + panelId, 'closed');
+    }
+}
+// Restore collapse state on load
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[id^="su_"]').forEach(function(panel) {
+        const state = sessionStorage.getItem('su_' + panel.id);
+        if (state === 'closed') {
+            panel.style.maxHeight = '0px';
+            panel.style.overflow = 'hidden';
+            const chevId = 'chev_' + panel.id.slice(3);
+            const chev = document.getElementById(chevId);
+            if (chev) chev.style.transform = 'rotate(-90deg)';
+        }
+    });
+});
+function setLang(l) {
+    document.cookie = 'lang=' + l + ';path=/;max-age=31536000;SameSite=Lax';
+    location.reload();
+}
+</script>
