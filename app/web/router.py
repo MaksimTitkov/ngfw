@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete as sa_delete, cast, Text, or_
 from sqlalchemy.orm import selectinload
 from app.db.session import get_db, async_session
-from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog, RuleTemplate, CachedAnalysis, ScheduledTask, ManagementSystem
-from app.services.crypto import encrypt_pw, decrypt_pw
+from app.db.models import CachedRule, Folder, CachedObject, DeviceMeta, NatFolder, CachedNatRule, CachedLog, ChangeLog, RuleTemplate, CachedAnalysis, ScheduledTask, ManagementSystem, IpPlan, RuleBlock
+from app.services.crypto import encrypt_pw, decrypt_pw, encrypt_field, decrypt_field
 from app.services.deploy_service import DeployService
 from app.services.analyzer_service import run_analysis
 from app.services.sync_service import SyncService
@@ -248,6 +248,8 @@ def rule_to_dict(rule: CachedRule, object_map: Dict[str, CachedObject], device_g
         "ext_id":        rule.ext_id,
         "name":          rule.name,
         "folder_id":     rule.folder_id,
+        "block_id":      rule.block_id or "",
+        "block_sort_order": rule.block_sort_order if rule.block_sort_order is not None else 9999,
         "description":   d.get('description', ''),
         "log_mode":      d.get('logMode', 'SECURITY_RULE_LOG_MODE_AT_RULE_HIT'),
         # rendered HTML for table display
@@ -1392,7 +1394,17 @@ async def index(request: Request, folder_id: str = Query(None),
         page        = max(1, min(page, total_pages))
         rules_slice = rules_sorted[(page - 1) * page_size : page * page_size]
         rules_processed = [rule_to_dict(r, object_map, dg_id_for_tooltip) for r in rules_slice]
-        dashboard_data.append({"folder": target_folder, "rules": rules_processed})
+
+        # Load blocks for this folder (for visual separators)
+        blocks_res = await db.execute(
+            select(RuleBlock).where(RuleBlock.folder_id == target_folder.id)
+            .order_by(RuleBlock.sort_order)
+        )
+        folder_blocks = {b.id: {"name": b.name, "vlan": b.vlan_name, "subnet": b.subnet}
+                         for b in blocks_res.scalars().all()}
+
+        dashboard_data.append({"folder": target_folder, "rules": rules_processed,
+                                "blocks": folder_blocks})
 
     filtered_tree = {k: v for k, v in tree.items() if not k.endswith(":global") and k != "global"}
     su_tree = await _build_su_tree(db, filtered_tree)
@@ -5017,3 +5029,283 @@ async def scheduler_run_now(task_id: int, request: Request, db: AsyncSession = D
     from app.services.scheduler_service import run_scheduled_task
     asyncio.create_task(run_scheduled_task(task_id))
     return JSONResponse({"status": "ok", "message": "Task triggered"})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# IP PLAN  &  RULE SORTER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sort-analysis", response_class=HTMLResponse)
+async def page_sort_analysis(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login")
+    async with async_session() as db:
+        res = await db.execute(select(DeviceMeta).order_by(DeviceMeta.name))
+        devices = [
+            {"id": d.device_id, "name": d.name or d.device_id}
+            for d in res.scalars().all()
+            if d.device_id != "global" and not d.device_id.endswith(":global")
+        ]
+    ctx = base_ctx(request, user=user, devices=devices)
+    return templates.TemplateResponse(request, "sort_analysis.html", ctx)
+
+
+@router.post("/api/v1/ip-plan/upload")
+async def ip_plan_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    device_group_id: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    from app.protected.rule_sorter_service import parse_ip_plan, save_ip_plan
+    data = await file.read()
+    try:
+        rows = parse_ip_plan(data, file.filename or "plan.csv")
+    except Exception as e:
+        return JSONResponse({"error": f"Parse error: {e}"}, status_code=400)
+
+    if not rows:
+        return JSONResponse({"error": "No valid rows found in file"}, status_code=400)
+
+    dg = device_group_id.strip() or None
+    count = await save_ip_plan(db, rows, dg)
+    await db.commit()
+    return JSONResponse({"status": "ok", "rows_saved": count, "preview": rows[:5]})
+
+
+@router.get("/api/v1/ip-plan")
+async def ip_plan_list(
+    request: Request,
+    device_group_id: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    dg = device_group_id.strip() or None
+    stmt = select(IpPlan).order_by(IpPlan.vrf_name, IpPlan.vlan_name)
+    if dg:
+        stmt = stmt.where(IpPlan.device_group_id == dg)
+    else:
+        stmt = stmt.where(IpPlan.device_group_id.is_(None))
+    res = await db.execute(stmt)
+    rows = [
+        {"id": r.id,
+         "vrf":         decrypt_field(r.vrf_name),
+         "vlan":        decrypt_field(r.vlan_name),
+         "subnet":      decrypt_field(r.subnet),
+         "description": decrypt_field(r.description)}
+        for r in res.scalars().all()
+    ]
+    return JSONResponse(rows)
+
+
+@router.delete("/api/v1/ip-plan")
+async def ip_plan_delete(
+    request: Request,
+    device_group_id: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from sqlalchemy import delete as sa_del
+    dg = device_group_id.strip() or None
+    if dg:
+        await db.execute(sa_del(IpPlan).where(IpPlan.device_group_id == dg))
+    else:
+        await db.execute(sa_del(IpPlan).where(IpPlan.device_group_id.is_(None)))
+    await db.commit()
+    return JSONResponse({"status": "ok"})
+
+
+@router.post("/api/v1/ip-plan/row")
+async def ip_plan_row_create(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    vrf    = (body.get("vrf")    or "").strip()
+    subnet = (body.get("subnet") or "").strip()
+    if not vrf or not subnet:
+        return JSONResponse({"error": "vrf and subnet are required"}, status_code=400)
+    row = IpPlan(
+        device_group_id = (body.get("device_group_id") or "").strip() or None,
+        vrf_name        = encrypt_field(vrf),
+        vlan_name       = encrypt_field((body.get("vlan") or "").strip() or None),
+        subnet          = encrypt_field(subnet),
+        description     = encrypt_field((body.get("description") or "").strip() or None),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return JSONResponse({
+        "id": row.id,
+        "vrf":         decrypt_field(row.vrf_name),
+        "vlan":        decrypt_field(row.vlan_name),
+        "subnet":      decrypt_field(row.subnet),
+        "description": decrypt_field(row.description),
+    })
+
+
+@router.put("/api/v1/ip-plan/row/{row_id}")
+async def ip_plan_row_update(
+    row_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    row = await db.get(IpPlan, row_id)
+    if not row:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = await request.json()
+    if "vrf"         in body: row.vrf_name    = encrypt_field((body["vrf"]         or "").strip())
+    if "vlan"        in body: row.vlan_name   = encrypt_field((body["vlan"]        or "").strip() or None)
+    if "subnet"      in body: row.subnet      = encrypt_field((body["subnet"]      or "").strip())
+    if "description" in body: row.description = encrypt_field((body["description"] or "").strip() or None)
+    await db.commit()
+    return JSONResponse({
+        "id": row.id,
+        "vrf":         decrypt_field(row.vrf_name),
+        "vlan":        decrypt_field(row.vlan_name),
+        "subnet":      decrypt_field(row.subnet),
+        "description": decrypt_field(row.description),
+    })
+
+
+@router.delete("/api/v1/ip-plan/row/{row_id}")
+async def ip_plan_row_delete(
+    row_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    row = await db.get(IpPlan, row_id)
+    if not row:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    await db.delete(row)
+    await db.commit()
+    return JSONResponse({"status": "ok"})
+
+
+@router.get("/api/v1/sort-analysis/debug")
+async def sort_analysis_debug(
+    request: Request,
+    device_group_id: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Debug endpoint: shows first rule's sourceAddr structure and matching objects."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from app.db.models import CachedRule, CachedObject, Folder, IpPlan
+
+    dg = device_group_id.strip()
+    su_id = dg.split(":")[0] if ":" in dg else None
+    scoped_global = f"{su_id}:global" if su_id else "global"
+
+    # Sample 3 rules
+    rule_res = await db.execute(
+        select(CachedRule)
+        .join(Folder, CachedRule.folder_id == Folder.id)
+        .where(Folder.device_group_id == dg)
+        .limit(3)
+    )
+    rules = rule_res.scalars().all()
+
+    # Sample objects
+    obj_res = await db.execute(
+        select(CachedObject).where(
+            CachedObject.device_group_id.in_([dg, "global", scoped_global])
+        ).limit(5)
+    )
+    objects = obj_res.scalars().all()
+
+    # IP plan rows
+    plan_res = await db.execute(
+        select(IpPlan).where(
+            (IpPlan.device_group_id == dg) | IpPlan.device_group_id.is_(None)
+        )
+    )
+    plan_rows = plan_res.scalars().all()
+
+    debug = {
+        "device_group_id": dg,
+        "su_id_extracted": su_id,
+        "scoped_global": scoped_global,
+        "ip_plan_rows": len(plan_rows),
+        "sample_rules": [],
+        "sample_objects": [],
+    }
+
+    from app.protected.rule_sorter_service import _extract_src_ext_ids
+    for r in rules:
+        src_ids = _extract_src_ext_ids(r.data or {})
+        src_field = (r.data or {}).get("sourceAddr", {})
+        debug["sample_rules"].append({
+            "name": r.name,
+            "sourceAddr_raw": src_field,
+            "extracted_src_ids": src_ids,
+        })
+
+    for o in objects:
+        debug["sample_objects"].append({
+            "ext_id": o.ext_id,
+            "name": o.name,
+            "type": o.type,
+            "device_group_id": o.device_group_id,
+            "data_keys": list((o.data or {}).keys()),
+            "data_value": (o.data or {}).get("value"),
+            "data_members": (o.data or {}).get("members", [])[:5],
+        })
+
+    return JSONResponse(debug)
+
+
+@router.post("/api/v1/sort-analysis/run")
+async def sort_analysis_run(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    device_group_id = body.get("device_group_id", "").strip()
+    if not device_group_id:
+        return JSONResponse({"error": "device_group_id required"}, status_code=400)
+
+    from app.protected.rule_sorter_service import run_sort_analysis
+    result = await run_sort_analysis(db, device_group_id)
+    return JSONResponse(result)
+
+
+@router.post("/api/v1/sort-analysis/apply")
+async def sort_analysis_apply(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    device_group_id = body.get("device_group_id", "").strip()
+    proposal        = body.get("proposal", {})
+    if not device_group_id or not proposal:
+        return JSONResponse({"error": "device_group_id and proposal required"}, status_code=400)
+
+    from app.protected.rule_sorter_service import apply_sort_proposal
+    result = await apply_sort_proposal(db, proposal, device_group_id, user["username"])
+    return JSONResponse({"status": "ok", **result})

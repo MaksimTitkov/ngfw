@@ -1,0 +1,372 @@
+{% extends "base.html" %}
+{% block title %}IP Plan Sort — NGFW Manager{% endblock %}
+
+{% block body %}
+<div class="app-layout">
+  {% include "components/sidebar.html" %}
+
+  <div class="app-main">
+    <!-- Topbar -->
+    <div class="app-topbar">
+      <span class="topbar-title">
+        <i class="fas fa-layer-group" style="color:var(--accent);margin-right:6px"></i>
+        IP Plan — Сортировка правил
+      </span>
+      <div class="topbar-sep"></div>
+      <select id="deviceSelect" class="form-select" style="width:220px;height:32px;font-size:12px;padding:0 8px">
+        <option value="">— выберите устройство —</option>
+        {% for d in devices %}
+        <option value="{{ d.id }}">{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="app-content" style="display:flex;gap:20px;align-items:flex-start">
+
+      <!-- LEFT: Upload & IP plan -->
+      <div style="width:360px;flex-shrink:0;display:flex;flex-direction:column;gap:16px">
+
+        <!-- Upload card -->
+        <div class="folder-card" style="padding:16px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:12px">
+            <i class="fas fa-upload" style="color:var(--accent);margin-right:6px"></i>Загрузить IP-план
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">
+            Поддерживаются CSV и Excel (XLSX).<br>
+            <b>Формат A (рекомендован):</b> колонки <code>vrf, vlan, subnet, description</code><br>
+            <b>Формат B (ваш Excel):</b> авто-определение по колонкам VRF/IP/MASK
+          </div>
+          <input type="file" id="planFile" accept=".csv,.xlsx,.xls"
+                 style="font-size:12px;margin-bottom:10px;width:100%">
+          <button class="btn-top primary" style="width:100%" onclick="uploadPlan()">
+            <i class="fas fa-cloud-upload-alt"></i> Загрузить
+          </button>
+          <div id="uploadMsg" style="margin-top:8px;font-size:11px;display:none"></div>
+        </div>
+
+        <!-- Current IP plan table -->
+        <div class="folder-card" style="padding:16px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+            <span><i class="fas fa-table" style="color:var(--accent);margin-right:6px"></i>Текущий IP-план</span>
+            <button class="btn-top danger" style="padding:3px 8px;font-size:11px" onclick="clearPlan()">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+          <div id="planTable" style="max-height:400px;overflow-y:auto">
+            <div style="color:var(--text-muted);font-size:12px">Не загружен</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Analysis result -->
+      <div style="flex:1;min-width:0">
+        <div class="folder-card" style="padding:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-weight:700;font-size:13px">
+              <i class="fas fa-sitemap" style="color:var(--accent);margin-right:6px"></i>Предложение сортировки
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn-top" onclick="runAnalysis()">
+                <i class="fas fa-play"></i> Анализировать
+              </button>
+              <button class="btn-top primary" id="applyBtn" onclick="applyProposal()" disabled>
+                <i class="fas fa-check"></i> Применить
+              </button>
+            </div>
+          </div>
+
+          <!-- Stats bar -->
+          <div id="statsBar" style="display:none;margin-bottom:14px;padding:10px 14px;background:var(--surface2);border-radius:6px;display:flex;gap:24px">
+            <span style="font-size:12px">Всего правил: <b id="statTotal">0</b></span>
+            <span style="font-size:12px;color:var(--success)">Классифицировано: <b id="statClassified">0</b></span>
+            <span style="font-size:12px;color:var(--warning)">Не классифицировано: <b id="statUnclassified">0</b></span>
+          </div>
+
+          <!-- Result tree -->
+          <div id="resultTree">
+            <div class="empty-state" style="padding:40px 0">
+              <i class="fas fa-sitemap" style="font-size:32px;color:#334155;display:block;margin-bottom:10px"></i>
+              Выберите устройство, загрузите IP-план и нажмите «Анализировать»
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- app-content -->
+  </div><!-- app-main -->
+</div><!-- app-layout -->
+
+<style>
+.plan-row { display:grid;grid-template-columns:1fr 1fr 110px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px; }
+.plan-row:last-child { border-bottom:none; }
+.plan-hdr { font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase; }
+.vrf-block { margin-bottom:12px; }
+.vrf-header {
+  display:flex;align-items:center;gap:8px;padding:7px 10px;
+  background:rgba(59,130,246,.1);border-radius:6px;cursor:pointer;
+  font-weight:700;font-size:12px;color:#60a5fa;margin-bottom:4px;
+  user-select:none;
+}
+.vrf-header .badge-new {
+  background:#ef4444;color:#fff;font-size:9px;font-weight:700;
+  padding:1px 6px;border-radius:10px;
+}
+.vrf-header .badge-exist {
+  background:rgba(34,197,94,.2);color:#4ade80;font-size:9px;font-weight:700;
+  padding:1px 6px;border-radius:10px;
+}
+.block-header {
+  display:flex;align-items:center;gap:6px;padding:4px 10px 4px 20px;
+  font-size:11px;font-weight:700;color:#94a3b8;margin:2px 0;cursor:pointer;
+}
+.block-rules { padding-left:32px; }
+.rule-row {
+  display:grid;grid-template-columns:1fr 90px 90px;gap:8px;
+  padding:3px 6px;border-bottom:1px solid #f1f5f9;font-size:11px;
+}
+.rule-row:last-child { border-bottom:none; }
+.section-badge-sort {
+  font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.section-badge-sort.pre     { background:rgba(59,130,246,.2);color:#93c5fd; }
+.section-badge-sort.default { background:rgba(100,116,139,.2);color:#94a3b8; }
+.section-badge-sort.post    { background:rgba(168,85,247,.2);color:#d8b4fe; }
+.unclass-header {
+  padding:6px 10px;background:rgba(245,158,11,.1);border-radius:6px;
+  font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:4px;
+}
+</style>
+
+<script>
+let currentProposal = null;
+
+function getDevice() {
+  return document.getElementById('deviceSelect').value;
+}
+
+// ── Upload plan ──────────────────────────────────────────────────────────────
+async function uploadPlan() {
+  const dg   = getDevice();
+  const file = document.getElementById('planFile').files[0];
+  const msg  = document.getElementById('uploadMsg');
+  if (!file) { showMsg(msg, 'Выберите файл', 'warn'); return; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  if (dg) fd.append('device_group_id', dg);
+
+  msg.style.display = 'block';
+  msg.style.color   = '#64748b';
+  msg.textContent   = 'Загрузка…';
+
+  try {
+    const r = await fetch('/api/v1/ip-plan/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) { showMsg(msg, d.error || 'Ошибка', 'err'); return; }
+    showMsg(msg, `Сохранено ${d.rows_saved} записей`, 'ok');
+    loadPlanTable();
+  } catch(e) { showMsg(msg, String(e), 'err'); }
+}
+
+async function loadPlanTable() {
+  const dg = getDevice();
+  const el = document.getElementById('planTable');
+  const url = dg ? `/api/v1/ip-plan?device_group_id=${encodeURIComponent(dg)}` : '/api/v1/ip-plan';
+  const r = await fetch(url);
+  const rows = await r.json();
+  if (!rows.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Не загружен</div>'; return; }
+
+  let grouped = {};
+  for (const row of rows) {
+    if (!grouped[row.vrf]) grouped[row.vrf] = [];
+    grouped[row.vrf].push(row);
+  }
+  let html = '';
+  for (const [vrf, entries] of Object.entries(grouped)) {
+    html += `<div style="margin-bottom:10px">
+      <div style="font-weight:700;font-size:11px;color:#60a5fa;padding:2px 0;border-bottom:1px solid #1e293b;margin-bottom:4px">${vrf}</div>`;
+    for (const e of entries) {
+      html += `<div class="plan-row">
+        <span style="color:#94a3b8">${e.vlan || '<em>VRF-level</em>'}</span>
+        <span style="font-family:monospace">${e.subnet}</span>
+        <span style="color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.description||''}">${e.description||'—'}</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function clearPlan() {
+  const dg = getDevice();
+  const url = dg ? `/api/v1/ip-plan?device_group_id=${encodeURIComponent(dg)}` : '/api/v1/ip-plan';
+  await fetch(url, {method:'DELETE'});
+  loadPlanTable();
+}
+
+// ── Run analysis ─────────────────────────────────────────────────────────────
+async function runAnalysis() {
+  const dg = getDevice();
+  if (!dg) { alert('Выберите устройство'); return; }
+
+  const tree = document.getElementById('resultTree');
+  tree.innerHTML = '<div style="padding:20px;text-align:center;color:#64748b"><i class="fas fa-spinner fa-spin" style="font-size:20px"></i><br>Анализ…</div>';
+  document.getElementById('applyBtn').disabled = true;
+  document.getElementById('statsBar').style.display = 'none';
+
+  try {
+    const r = await fetch('/api/v1/sort-analysis/run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({device_group_id: dg}),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) { tree.innerHTML = `<div style="color:#ef4444;padding:16px">${d.error || 'Ошибка'}</div>`; return; }
+
+    currentProposal = d;
+    renderProposal(d);
+    document.getElementById('applyBtn').disabled = false;
+  } catch(e) {
+    tree.innerHTML = `<div style="color:#ef4444;padding:16px">${e}</div>`;
+  }
+}
+
+function renderProposal(data) {
+  // Stats
+  const sb = document.getElementById('statsBar');
+  sb.style.display = 'flex';
+  document.getElementById('statTotal').textContent       = data.stats.total;
+  document.getElementById('statClassified').textContent  = data.stats.classified;
+  document.getElementById('statUnclassified').textContent = data.stats.unclassified;
+
+  let html = '';
+  const sectionOrder = ['pre','default','post'];
+  for (const sec of sectionOrder) {
+    const folderList = data.sections[sec];
+    if (!folderList || !folderList.length) continue;
+    html += `<div style="margin-bottom:20px">
+      <div style="font-size:10px;font-weight:700;color:#475569;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">
+        Секция: <span class="section-badge-sort ${sec}">${sec}</span>
+      </div>`;
+    for (const folder of folderList) {
+      const badge = folder.is_new
+        ? '<span class="badge-new">НОВАЯ</span>'
+        : '<span class="badge-exist">существует</span>';
+      const totalRules = folder.blocks.reduce((s,b)=>s+b.rules.length, 0);
+      html += `<div class="vrf-block">
+        <div class="vrf-header" onclick="toggleSection(this)">
+          <i class="fas fa-folder" style="font-size:13px"></i>
+          <span style="flex:1">${folder.folder_name}</span>
+          ${badge}
+          <span style="color:#64748b;font-size:11px;font-weight:400">${totalRules} правил</span>
+          <i class="fas fa-chevron-down" style="font-size:10px;transition:.2s"></i>
+        </div>
+        <div class="vrf-body">`;
+      for (const block of folder.blocks) {
+        const subnetLabel = block.subnet ? `<span style="font-family:monospace;color:#475569;font-size:10px;margin-left:6px">${block.subnet}</span>` : '';
+        html += `<div>
+          <div class="block-header" onclick="toggleSection(this)">
+            <i class="fas fa-layer-group" style="font-size:10px;color:#475569"></i>
+            <span>${block.block_name}</span>${subnetLabel}
+            <span style="margin-left:auto;color:#475569;font-weight:400">${block.rules.length}</span>
+            <i class="fas fa-chevron-right" style="font-size:9px;transition:.2s;margin-left:4px"></i>
+          </div>
+          <div class="block-rules block-body" style="display:none">
+            <div class="rule-row" style="font-weight:700;font-size:10px;color:var(--text-muted)">
+              <span>Имя правила</span><span>src IP</span><span>секция</span>
+            </div>`;
+        for (const rule of block.rules) {
+          html += `<div class="rule-row">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${rule.rule_name}">${rule.rule_name}</span>
+            <span style="font-family:monospace;font-size:10px;color:#60a5fa">${rule.src_match || 'Any'}</span>
+            <span><span class="section-badge-sort ${rule.section}">${rule.section}</span></span>
+          </div>`;
+        }
+        html += `</div></div>`;
+      }
+      html += `</div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Unclassified
+  if (data.unclassified && data.unclassified.length) {
+    html += `<div style="margin-bottom:16px">
+      <div class="unclass-header" onclick="toggleSection(this)" style="cursor:pointer;display:flex;align-items:center;gap:8px">
+        <i class="fas fa-question-circle"></i>
+        <span style="flex:1">Не классифицировано (${data.unclassified.length})</span>
+        <i class="fas fa-chevron-down" style="font-size:10px;transition:.2s"></i>
+      </div>
+      <div class="unclass-body">`;
+    for (const rule of data.unclassified) {
+      html += `<div class="rule-row" style="padding-left:10px">
+        <span>${rule.rule_name}</span>
+        <span style="color:#475569">Any/Unknown</span>
+        <span><span class="section-badge-sort ${rule.section}">${rule.section}</span></span>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  document.getElementById('resultTree').innerHTML = html || '<div style="color:var(--text-muted);padding:20px">Нет результатов</div>';
+}
+
+function toggleSection(header) {
+  // Find the next sibling body div
+  const bodyClass = header.className.includes('vrf-header') ? '.vrf-body'
+    : header.className.includes('block-header') ? '.block-body'
+    : '.unclass-body';
+  const parent = header.parentElement;
+  const body = parent.querySelector(bodyClass.replace('.','').split('-').map((w,i)=>i?w:w).join('-') === 'vrf-body'
+    ? '.vrf-body' : bodyClass.includes('block') ? '.block-body' : '.unclass-body');
+
+  const chevron = header.querySelector('.fa-chevron-down, .fa-chevron-right');
+  if (!body) return;
+
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    if (chevron) { chevron.style.transform = 'rotate(0deg)'; }
+  } else {
+    body.style.display = 'none';
+    if (chevron) { chevron.style.transform = 'rotate(-90deg)'; }
+  }
+}
+
+// ── Apply proposal ───────────────────────────────────────────────────────────
+async function applyProposal() {
+  const dg = getDevice();
+  if (!currentProposal || !dg) return;
+  if (!confirm(`Применить сортировку для ${dg}?\nБудут созданы новые папки и блоки, правила будут перераспределены.\nДействие можно будет изменить вручную.`)) return;
+
+  document.getElementById('applyBtn').disabled = true;
+  try {
+    const r = await fetch('/api/v1/sort-analysis/apply', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({device_group_id: dg, proposal: currentProposal}),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) { alert('Ошибка: ' + (d.error || JSON.stringify(d))); return; }
+    alert(`Готово!\nСоздано папок: ${d.created_folders}\nСоздано блоков: ${d.created_blocks}\nПеремещено правил: ${d.moved_rules}\n\nТеперь выполните Deploy для применения на устройстве.`);
+    currentProposal = null;
+    document.getElementById('applyBtn').disabled = true;
+  } catch(e) { alert('Ошибка: ' + e); }
+}
+
+function showMsg(el, text, type) {
+  el.style.display = 'block';
+  el.style.color   = type === 'ok' ? '#22c55e' : type === 'warn' ? '#f59e0b' : '#ef4444';
+  el.textContent   = text;
+}
+
+// Load plan table on device change
+document.getElementById('deviceSelect').addEventListener('change', () => {
+  loadPlanTable();
+  currentProposal = null;
+  document.getElementById('applyBtn').disabled = true;
+  document.getElementById('statsBar').style.display = 'none';
+  document.getElementById('resultTree').innerHTML = '<div class="empty-state" style="padding:40px 0"><i class="fas fa-sitemap" style="font-size:32px;color:#334155;display:block;margin-bottom:10px"></i>Выберите устройство, загрузите IP-план и нажмите «Анализировать»</div>';
+});
+</script>
+{% endblock %}

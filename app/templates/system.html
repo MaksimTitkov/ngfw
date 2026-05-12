@@ -40,7 +40,8 @@
                     ('backup','Backup','fa-database'),
                     ('interfaces','Interfaces','fa-network-wired'),
                     ('settings','Settings','fa-sliders'),
-                    ('scheduler','Scheduler','fa-clock')
+                    ('scheduler','Scheduler','fa-clock'),
+                    ('ipplan','IP Plan','fa-map')
                 ] %}
                 <button id="tab_{{ tid }}" onclick="setTab('{{ tid }}')"
                         style="padding:4px 11px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:.15s"
@@ -240,6 +241,7 @@ function loadTab() {
         interfaces:  loadInterfaces,
         settings:    loadSettings,
         scheduler:   loadScheduler,
+        ipplan:      loadIpPlan,
     };
     (loaders[_currentTab] || (() => {}))();
 }
@@ -907,6 +909,7 @@ function _renderScheduler(tasks, hasCreds) {
                     <div style="font-size:10px;color:#64748b;margin-bottom:3px">Task type</div>
                     <select id="sched_type" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:#0f172a;color:#e2e8f0;font-size:12px;outline:none">
                         <option value="sync">Auto-Sync</option>
+                        <option value="sort_analysis">Sort Analysis</option>
                     </select>
                 </div>
                 <div>
@@ -1059,6 +1062,223 @@ function _g(obj, ...keys) {
 }
 function _esc(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ================================================================
+// IP PLAN — full CRUD per device
+// ================================================================
+const _ipInStyle = `width:100%;box-sizing:border-box;background:#0f172a;border:1px solid rgba(255,255,255,.12);
+    border-radius:4px;color:#e2e8f0;font-size:11px;padding:3px 6px;outline:none`;
+
+async function loadIpPlan() {
+    const dg = DEVICE_ID;
+    if (!dg) {
+        document.getElementById('mainContent').innerHTML = `
+            <div style="padding:32px;text-align:center;color:#475569;font-size:13px">
+                <i class="fas fa-map" style="font-size:28px;opacity:.2;display:block;margin-bottom:8px"></i>
+                Выберите устройство в сайдбаре для управления IP-планом.
+            </div>`;
+        return;
+    }
+    _loading();
+    try {
+        const r = await fetch(`/api/v1/ip-plan?device_group_id=${encodeURIComponent(dg)}`);
+        _renderIpPlan(await r.json(), dg);
+    } catch(e) { _err(e.message); }
+}
+
+function _ipTr(e, dg) {
+    return `<tr id="ipr_${e.id}" data-id="${e.id}">
+        <td style="padding:4px 6px;font-size:11px;color:#60a5fa;font-weight:600">${_esc(e.vrf||'')}</td>
+        <td style="padding:4px 6px;font-size:11px;color:#94a3b8">${_esc(e.vlan||'—')}</td>
+        <td style="padding:4px 6px;font-family:monospace;font-size:12px;color:#7dd3fc">${_esc(e.subnet)}</td>
+        <td style="padding:4px 6px;font-size:11px;color:#94a3b8">${_esc(e.description||'')}</td>
+        <td style="padding:4px 6px;white-space:nowrap;text-align:right">
+            <button onclick="ipPlanEditRow(${e.id},'${_esc(dg)}')"
+                style="padding:2px 8px;border-radius:4px;border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.1);color:#60a5fa;font-size:10px;cursor:pointer;margin-right:4px">
+                <i class="fas fa-pencil-alt"></i>
+            </button>
+            <button onclick="ipPlanDeleteRow(${e.id},'${_esc(dg)}')"
+                style="padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#f87171;font-size:10px;cursor:pointer">
+                <i class="fas fa-times"></i>
+            </button>
+        </td>
+    </tr>`;
+}
+
+function _renderIpPlan(rows, dg) {
+    const tbody = rows.map(e => _ipTr(e, dg)).join('');
+    document.getElementById('mainContent').innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:14px">
+            <!-- upload strip -->
+            <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px">
+                <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">
+                    <i class="fas fa-upload me-2" style="color:#3b82f6"></i>Загрузить из файла
+                </div>
+                <div style="font-size:11px;color:#475569;margin-bottom:8px">
+                    Формат A: <code style="background:#0f172a;padding:1px 4px;border-radius:3px">vrf, vlan, subnet, [mask], [description]</code> &nbsp;·&nbsp;
+                    Формат B: автоопределение VRF/IP/MASK
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <input type="file" id="ipplan_file" accept=".csv,.xlsx,.xls"
+                           style="font-size:11px;color:#94a3b8;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:3px 8px;background:#0f172a">
+                    <button onclick="uploadIpPlan('${_esc(dg)}')"
+                            style="padding:5px 13px;border-radius:6px;border:none;background:#3b82f6;color:#fff;font-weight:600;font-size:11px;cursor:pointer">
+                        <i class="fas fa-cloud-upload-alt me-1"></i>Загрузить
+                    </button>
+                    ${rows.length ? `<button onclick="clearIpPlan('${_esc(dg)}')"
+                            style="padding:5px 11px;border-radius:6px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.1);color:#f87171;font-size:11px;cursor:pointer">
+                        <i class="fas fa-trash me-1"></i>Очистить всё
+                    </button>` : ''}
+                    <a href="/sort-analysis" style="padding:5px 11px;border-radius:6px;border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.08);color:#60a5fa;font-size:11px;text-decoration:none">
+                        <i class="fas fa-sitemap me-1"></i>Sorter
+                    </a>
+                </div>
+                <div id="ipplan_msg" style="margin-top:8px;font-size:11px;display:none"></div>
+            </div>
+
+            <!-- plan table -->
+            <div style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                    <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">
+                        <i class="fas fa-table me-2" style="color:#3b82f6"></i>IP Plan
+                        <span style="font-weight:400;color:#475569;text-transform:none">(${rows.length} записей)</span>
+                    </span>
+                    <button onclick="ipPlanAddRow('${_esc(dg)}')"
+                            style="padding:5px 12px;border-radius:6px;border:none;background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);font-size:11px;cursor:pointer;font-weight:600">
+                        <i class="fas fa-plus me-1"></i>Добавить строку
+                    </button>
+                </div>
+                <div style="max-height:500px;overflow-y:auto">
+                    <table style="width:100%;border-collapse:collapse" id="ipplan_table">
+                        <thead><tr style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;position:sticky;top:0;background:#1e293b">
+                            <th style="padding:4px 6px;text-align:left">VRF</th>
+                            <th style="padding:4px 6px;text-align:left">VLAN</th>
+                            <th style="padding:4px 6px;text-align:left">Subnet</th>
+                            <th style="padding:4px 6px;text-align:left">Description</th>
+                            <th style="width:80px"></th>
+                        </tr></thead>
+                        <tbody id="ipplan_tbody">${tbody}</tbody>
+                    </table>
+                    ${!rows.length ? `<div style="color:#475569;font-size:12px;padding:20px;text-align:center">
+                        IP-план для этого устройства пуст. Загрузите файл или добавьте строки вручную.
+                    </div>` : ''}
+                </div>
+            </div>
+        </div>`;
+}
+
+function ipPlanEditRow(id, dg) {
+    const tr = document.getElementById('ipr_' + id);
+    if (!tr) return;
+    const cells = tr.querySelectorAll('td');
+    const [vrf, vlan, subnet, desc] = [cells[0].textContent.trim(),
+        cells[1].textContent.trim().replace('—',''), cells[2].textContent.trim(), cells[3].textContent.trim()];
+    tr.innerHTML = `
+        <td style="padding:3px 4px"><input id="ie_vrf_${id}" value="${_esc(vrf)}" placeholder="VRF" style="${_ipInStyle}"></td>
+        <td style="padding:3px 4px"><input id="ie_vlan_${id}" value="${_esc(vlan)}" placeholder="VLAN" style="${_ipInStyle}"></td>
+        <td style="padding:3px 4px"><input id="ie_sub_${id}" value="${_esc(subnet)}" placeholder="10.0.0.0/24" style="${_ipInStyle};font-family:monospace"></td>
+        <td style="padding:3px 4px"><input id="ie_desc_${id}" value="${_esc(desc)}" placeholder="Description" style="${_ipInStyle}"></td>
+        <td style="padding:3px 4px;white-space:nowrap;text-align:right">
+            <button onclick="ipPlanSaveRow(${id},'${_esc(dg)}')"
+                style="padding:2px 8px;border-radius:4px;border:none;background:#22c55e;color:#fff;font-size:10px;cursor:pointer;margin-right:4px">
+                <i class="fas fa-check"></i>
+            </button>
+            <button onclick="loadIpPlan()"
+                style="padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#94a3b8;font-size:10px;cursor:pointer">
+                <i class="fas fa-times"></i>
+            </button>
+        </td>`;
+}
+
+async function ipPlanSaveRow(id, dg) {
+    const body = {
+        vrf:         document.getElementById('ie_vrf_'  + id)?.value.trim(),
+        vlan:        document.getElementById('ie_vlan_' + id)?.value.trim(),
+        subnet:      document.getElementById('ie_sub_'  + id)?.value.trim(),
+        description: document.getElementById('ie_desc_' + id)?.value.trim(),
+    };
+    if (!body.vrf || !body.subnet) { showToast('VRF и Subnet обязательны', 'error'); return; }
+    const r = await fetch(`/api/v1/ip-plan/row/${id}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!r.ok) { showToast((await r.json()).error || 'Ошибка', 'error'); return; }
+    showToast('Сохранено', 'success');
+    loadIpPlan();
+}
+
+async function ipPlanDeleteRow(id, dg) {
+    if (!confirm('Удалить эту строку?')) return;
+    const r = await fetch(`/api/v1/ip-plan/row/${id}`, { method: 'DELETE' });
+    if (!r.ok) { showToast('Ошибка удаления', 'error'); return; }
+    showToast('Удалено', 'success');
+    loadIpPlan();
+}
+
+function ipPlanAddRow(dg) {
+    const tbody = document.getElementById('ipplan_tbody');
+    if (!tbody) return;
+    if (document.getElementById('ipr_new')) return; // already open
+    const tr = document.createElement('tr');
+    tr.id = 'ipr_new';
+    tr.innerHTML = `
+        <td style="padding:3px 4px"><input id="in_vrf" placeholder="VRF *" style="${_ipInStyle}"></td>
+        <td style="padding:3px 4px"><input id="in_vlan" placeholder="VLAN" style="${_ipInStyle}"></td>
+        <td style="padding:3px 4px"><input id="in_sub" placeholder="10.0.0.0/24 *" style="${_ipInStyle};font-family:monospace"></td>
+        <td style="padding:3px 4px"><input id="in_desc" placeholder="Description" style="${_ipInStyle}"></td>
+        <td style="padding:3px 4px;white-space:nowrap;text-align:right">
+            <button onclick="ipPlanSaveNew('${_esc(dg)}')"
+                style="padding:2px 8px;border-radius:4px;border:none;background:#22c55e;color:#fff;font-size:10px;cursor:pointer;margin-right:4px">
+                <i class="fas fa-check"></i>
+            </button>
+            <button onclick="document.getElementById('ipr_new').remove()"
+                style="padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#94a3b8;font-size:10px;cursor:pointer">
+                <i class="fas fa-times"></i>
+            </button>
+        </td>`;
+    tbody.appendChild(tr);
+    document.getElementById('in_vrf').focus();
+}
+
+async function ipPlanSaveNew(dg) {
+    const body = {
+        device_group_id: dg,
+        vrf:         document.getElementById('in_vrf')?.value.trim(),
+        vlan:        document.getElementById('in_vlan')?.value.trim(),
+        subnet:      document.getElementById('in_sub')?.value.trim(),
+        description: document.getElementById('in_desc')?.value.trim(),
+    };
+    if (!body.vrf || !body.subnet) { showToast('VRF и Subnet обязательны', 'error'); return; }
+    const r = await fetch('/api/v1/ip-plan/row', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!r.ok) { showToast((await r.json()).error || 'Ошибка', 'error'); return; }
+    showToast('Строка добавлена', 'success');
+    loadIpPlan();
+}
+
+async function uploadIpPlan(dg) {
+    const file = document.getElementById('ipplan_file')?.files[0];
+    const msg  = document.getElementById('ipplan_msg');
+    if (!file) { showToast('Выберите файл', 'error'); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('device_group_id', dg);
+    if (msg) { msg.style.display='block'; msg.style.color='#64748b'; msg.textContent='Загрузка…'; }
+    try {
+        const r = await fetch('/api/v1/ip-plan/upload', { method:'POST', body:fd });
+        const d = await r.json();
+        if (!r.ok) { if(msg){msg.style.color='#ef4444';msg.textContent=d.error||'Ошибка';} return; }
+        showToast(`Загружено ${d.rows_saved} записей`, 'success');
+        loadIpPlan();
+    } catch(e) { if(msg){msg.style.color='#ef4444';msg.textContent=String(e);} }
+}
+
+async function clearIpPlan(dg) {
+    if (!confirm('Очистить весь IP-план для этого устройства?')) return;
+    await fetch(`/api/v1/ip-plan?device_group_id=${encodeURIComponent(dg)}`, {method:'DELETE'});
+    showToast('IP-план очищен', 'success');
+    loadIpPlan();
 }
 
 // ---- Init ----

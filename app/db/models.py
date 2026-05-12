@@ -41,7 +41,9 @@ class CachedRule(Base):
     data = Column(JSON)
     is_modified = Column(Boolean, default=False)
     modified_at = Column(String, nullable=True)
-    folder = relationship("Folder", back_populates="rules")
+    block_id    = Column(String, ForeignKey("rule_blocks.id", ondelete="SET NULL"), nullable=True)
+    block_sort_order = Column(Integer, nullable=True)
+    folder      = relationship("Folder", back_populates="rules")
 
 class CachedObject(Base):
     __tablename__ = "cached_objects"
@@ -156,6 +158,42 @@ class ScheduledTask(Base):
     last_error      = Column(Text,        nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     created_by      = Column(String(128), nullable=True)
+
+
+class IpPlan(Base):
+    """IP plan entries: VRF → VLAN → subnet mapping for rule sorting."""
+    __tablename__ = "ip_plan"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    device_group_id = Column(String(128), nullable=True)   # None = applies to all devices
+    vrf_name        = Column(String(128), nullable=False)
+    vlan_name       = Column(String(128), nullable=True)   # None = VRF-level entry only
+    subnet          = Column(String(64),  nullable=False)  # CIDR e.g. 10.17.5.0/24
+    description     = Column(String(512), nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index('ix_ipplan_device', 'device_group_id'),
+        Index('ix_ipplan_vrf',    'vrf_name'),
+    )
+
+
+class RuleBlock(Base):
+    """Named block (sub-group) inside a Folder — local UI concept, not pushed to device."""
+    __tablename__ = "rule_blocks"
+
+    id          = Column(String, primary_key=True)
+    folder_id   = Column(String, ForeignKey("folders.id", ondelete="CASCADE"), nullable=False)
+    name        = Column(String(256), nullable=False)
+    vrf_name    = Column(String(128), nullable=True)
+    vlan_name   = Column(String(128), nullable=True)
+    subnet      = Column(String(64),  nullable=True)
+    sort_order  = Column(Integer, default=0)
+    folder      = relationship("Folder")
+
+    __table_args__ = (
+        Index('ix_rblock_folder', 'folder_id'),
+    )
 
 
 class ChangeLog(Base):

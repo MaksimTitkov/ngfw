@@ -68,6 +68,9 @@ async def init_db():
         "ALTER TABLE cached_objects ADD COLUMN su_id VARCHAR",
         "ALTER TABLE cached_nat_rules ADD COLUMN su_id VARCHAR",
         "ALTER TABLE cached_analysis ADD COLUMN su_id VARCHAR",
+        # Rule sorter: block assignments on cached_rules
+        "ALTER TABLE cached_rules ADD COLUMN block_id VARCHAR REFERENCES rule_blocks(id) ON DELETE SET NULL",
+        "ALTER TABLE cached_rules ADD COLUMN block_sort_order INTEGER",
     ]
     for stmt in migrations:
         try:

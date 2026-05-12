@@ -13,7 +13,7 @@
 
     {# Determine active section from URL path #}
     {% set path = request.url.path %}
-    {% if path in ['/', '/nat', '/objects'] %}
+    {% if path in ['/', '/nat', '/objects', '/sort-analysis'] %}
         {% set active_sec = 'sec' %}
     {% elif path == '/logs' %}
         {% set active_sec = 'log' %}
@@ -65,7 +65,7 @@
     <div style="display:flex;gap:2px;padding:0 10px 5px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02)">
 
         {% if active_sec == 'sec' %}
-            {% for href, label in [('/', 'Rules'), ('/nat', 'NAT'), ('/objects', 'Objects')] %}
+            {% for href, label in [('/', 'Rules'), ('/nat', 'NAT'), ('/objects', 'Objects'), ('/sort-analysis', 'Sorter')] %}
             <a href="{{ href }}"
                style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
                       {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">
