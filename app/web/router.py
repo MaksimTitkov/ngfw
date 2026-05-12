@@ -5095,11 +5095,8 @@ async def ip_plan_list(
         stmt = stmt.where(IpPlan.device_group_id.is_(None))
     res = await db.execute(stmt)
     rows = [
-        {"id": r.id,
-         "vrf":         decrypt_field(r.vrf_name),
-         "vlan":        decrypt_field(r.vlan_name),
-         "subnet":      decrypt_field(r.subnet),
-         "description": decrypt_field(r.description)}
+        {"id": r.id, "vrf": r.vrf_name, "vlan": r.vlan_name,
+         "subnet": r.subnet, "description": r.description}
         for r in res.scalars().all()
     ]
     return JSONResponse(rows)
@@ -5139,20 +5136,17 @@ async def ip_plan_row_create(
         return JSONResponse({"error": "vrf and subnet are required"}, status_code=400)
     row = IpPlan(
         device_group_id = (body.get("device_group_id") or "").strip() or None,
-        vrf_name        = encrypt_field(vrf),
-        vlan_name       = encrypt_field((body.get("vlan") or "").strip() or None),
-        subnet          = encrypt_field(subnet),
-        description     = encrypt_field((body.get("description") or "").strip() or None),
+        vrf_name        = vrf,
+        vlan_name       = (body.get("vlan") or "").strip() or None,
+        subnet          = subnet,
+        description     = (body.get("description") or "").strip() or None,
     )
     db.add(row)
     await db.commit()
     await db.refresh(row)
     return JSONResponse({
-        "id": row.id,
-        "vrf":         decrypt_field(row.vrf_name),
-        "vlan":        decrypt_field(row.vlan_name),
-        "subnet":      decrypt_field(row.subnet),
-        "description": decrypt_field(row.description),
+        "id": row.id, "vrf": row.vrf_name, "vlan": row.vlan_name,
+        "subnet": row.subnet, "description": row.description,
     })
 
 
@@ -5169,17 +5163,14 @@ async def ip_plan_row_update(
     if not row:
         return JSONResponse({"error": "Not found"}, status_code=404)
     body = await request.json()
-    if "vrf"         in body: row.vrf_name    = encrypt_field((body["vrf"]         or "").strip())
-    if "vlan"        in body: row.vlan_name   = encrypt_field((body["vlan"]        or "").strip() or None)
-    if "subnet"      in body: row.subnet      = encrypt_field((body["subnet"]      or "").strip())
-    if "description" in body: row.description = encrypt_field((body["description"] or "").strip() or None)
+    if "vrf"         in body: row.vrf_name    = (body["vrf"]         or "").strip()
+    if "vlan"        in body: row.vlan_name   = (body["vlan"]        or "").strip() or None
+    if "subnet"      in body: row.subnet      = (body["subnet"]      or "").strip()
+    if "description" in body: row.description = (body["description"] or "").strip() or None
     await db.commit()
     return JSONResponse({
-        "id": row.id,
-        "vrf":         decrypt_field(row.vrf_name),
-        "vlan":        decrypt_field(row.vlan_name),
-        "subnet":      decrypt_field(row.subnet),
-        "description": decrypt_field(row.description),
+        "id": row.id, "vrf": row.vrf_name, "vlan": row.vlan_name,
+        "subnet": row.subnet, "description": row.description,
     })
 
 
