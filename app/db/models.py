@@ -165,11 +165,11 @@ class IpPlan(Base):
     __tablename__ = "ip_plan"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    device_group_id = Column(String(128), nullable=True)   # None = applies to all devices
-    vrf_name        = Column(String(128), nullable=False)
-    vlan_name       = Column(String(128), nullable=True)   # None = VRF-level entry only
-    subnet          = Column(String(64),  nullable=False)  # CIDR e.g. 10.17.5.0/24
-    description     = Column(String(512), nullable=True)
+    device_group_id = Column(String(128), nullable=True)
+    vrf_name        = Column(Text, nullable=False)
+    vlan_name       = Column(Text, nullable=True)
+    subnet          = Column(Text, nullable=False)
+    description     = Column(Text, nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
