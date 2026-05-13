@@ -29,6 +29,12 @@
                 <button id="tabBtnModified" class="diff-tab" onclick="switchTab('modified')">
                     <i class="fas fa-pen-to-square me-1"></i>{{ t('tab_modified') }}
                 </button>
+                <button id="tabBtnObjSync" class="diff-tab" onclick="switchTab('objsync')">
+                    <i class="fas fa-arrows-rotate me-1"></i>Object Sync
+                </button>
+                <button id="tabBtnRuleSync" class="diff-tab" onclick="switchTab('rulesync')">
+                    <i class="fas fa-copy me-1"></i>Rule Sync
+                </button>
             </div>
 
             {# ========== TAB: Device Comparison ========== #}
@@ -153,6 +159,122 @@
 
             </div>{# /tabModified #}
 
+            {# ========== TAB: Object Sync ========== #}
+            <div id="tabObjSync" style="display:none;flex-direction:column;gap:14px">
+
+                {# СУ selector #}
+                <div style="background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
+                    <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">
+                        <i class="fas fa-server me-2" style="color:#f59e0b"></i>Выберите СУ для сравнения (минимум 2)
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px" id="suCheckboxes">
+                        {% for su in su_list %}
+                        <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;
+                                      border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);
+                                      cursor:pointer;font-size:12px;color:#e2e8f0">
+                            <input type="checkbox" value="{{ su.id }}" data-name="{{ su.name }}"
+                                   style="accent-color:#f59e0b" onchange="updateSuSelection()">
+                            <span>{{ su.name }}</span>
+                            <span style="font-size:10px;color:#475569">{{ su.host }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                        <div>
+                            <div class="diff-label">Тип объектов</div>
+                            <select id="objTypeFilter" class="diff-select">
+                                <option value="">Все</option>
+                                <option value="network">Сетевые (IP/FQDN/Range)</option>
+                                <option value="service">Сервисы (TCP/UDP/ICMP)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="diff-label">Показать</div>
+                            <select id="objShowFilter" class="diff-select">
+                                <option value="missing">Только отсутствующие</option>
+                                <option value="all">Все объекты</option>
+                            </select>
+                        </div>
+                        <button onclick="runObjDiff()"
+                                style="margin-top:16px;padding:7px 22px;border-radius:6px;border:none;
+                                       background:linear-gradient(135deg,#f59e0b,#d97706);
+                                       color:#fff;font-weight:700;font-size:13px;cursor:pointer">
+                            <i class="fas fa-magnifying-glass me-1"></i>Анализировать
+                        </button>
+                        <span id="objDiffInfo" style="margin-top:16px;font-size:12px;color:#475569"></span>
+                    </div>
+                </div>
+
+                {# Results #}
+                <div id="objDiffResults">
+                    <div style="text-align:center;padding:48px;color:#475569;font-size:13px">
+                        <i class="fas fa-arrows-rotate" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3"></i>
+                        Выберите СУ и нажмите «Анализировать»
+                    </div>
+                </div>
+
+            </div>{# /tabObjSync #}
+
+            {# ========== TAB: Rule Sync ========== #}
+            <div id="tabRuleSync" style="display:none;flex-direction:column;gap:14px">
+
+                {# Device selectors #}
+                <div style="background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
+                    <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
+                        <i class="fas fa-server me-2" style="color:#f59e0b"></i>Выберите устройства для сравнения правил
+                    </div>
+                    <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+                        <div>
+                            <div class="diff-label">СУ источника (A)</div>
+                            <select id="rsSuA" class="diff-select" onchange="rsPopulateDevices('A')">
+                                <option value="">— выберите СУ —</option>
+                                {% for su in su_list %}
+                                <option value="{{ su.id }}">{{ su.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <div class="diff-label">Устройство A</div>
+                            <select id="rsDevA" class="diff-select">
+                                <option value="">— сначала выберите СУ —</option>
+                            </select>
+                        </div>
+                        <div style="color:#475569;padding-bottom:6px"><i class="fas fa-arrows-left-right"></i></div>
+                        <div>
+                            <div class="diff-label">СУ цели (B)</div>
+                            <select id="rsSuB" class="diff-select" onchange="rsPopulateDevices('B')">
+                                <option value="">— выберите СУ —</option>
+                                {% for su in su_list %}
+                                <option value="{{ su.id }}">{{ su.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <div class="diff-label">Устройство B</div>
+                            <select id="rsDevB" class="diff-select">
+                                <option value="">— сначала выберите СУ —</option>
+                            </select>
+                        </div>
+                        <button onclick="runRuleSync()"
+                                style="padding:7px 22px;border-radius:6px;border:none;
+                                       background:linear-gradient(135deg,#f59e0b,#d97706);
+                                       color:#fff;font-weight:700;font-size:13px;cursor:pointer">
+                            <i class="fas fa-magnifying-glass me-1"></i>Сравнить
+                        </button>
+                        <span id="rsDiffInfo" style="font-size:12px;color:#475569"></span>
+                    </div>
+                </div>
+
+                {# Results #}
+                <div id="rsDiffResults">
+                    <div style="text-align:center;padding:48px;color:#475569;font-size:13px">
+                        <i class="fas fa-copy" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3"></i>
+                        Выберите устройства и нажмите «Сравнить»
+                    </div>
+                </div>
+
+            </div>{# /tabRuleSync #}
+
         </div>
     </div>
 </div>
@@ -230,10 +352,168 @@ let _activeTab = 'device';
 
 function switchTab(t) {
     _activeTab = t;
-    document.getElementById('tabDevice').style.display   = t === 'device'   ? '' : 'none';
-    document.getElementById('tabModified').style.display = t === 'modified' ? '' : 'none';
+    document.getElementById('tabDevice').style.display    = t === 'device'    ? '' : 'none';
+    document.getElementById('tabModified').style.display  = t === 'modified'  ? '' : 'none';
+    document.getElementById('tabObjSync').style.display   = t === 'objsync'   ? 'flex' : 'none';
+    document.getElementById('tabRuleSync').style.display  = t === 'rulesync'  ? 'flex' : 'none';
     document.getElementById('tabBtnDevice').classList.toggle('active',   t === 'device');
     document.getElementById('tabBtnModified').classList.toggle('active', t === 'modified');
+    document.getElementById('tabBtnObjSync').classList.toggle('active',  t === 'objsync');
+    document.getElementById('tabBtnRuleSync').classList.toggle('active', t === 'rulesync');
+}
+
+// ── Object Sync ──────────────────────────────────────────────────────────────
+
+let _objDiffData  = null;   // last analyze result
+let _selectedSuIds = [];    // checked СУ ids
+
+function updateSuSelection() {
+    _selectedSuIds = [...document.querySelectorAll('#suCheckboxes input:checked')].map(c => c.value);
+}
+
+function _esc(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function runObjDiff() {
+    updateSuSelection();
+    if (_selectedSuIds.length < 2) { showToast('Выберите минимум 2 СУ', 'warning'); return; }
+
+    const res = document.getElementById('objDiffResults');
+    res.innerHTML = `<div style="text-align:center;padding:40px;color:#64748b;font-size:13px">
+        <i class="fas fa-circle-notch fa-spin" style="font-size:24px;margin-bottom:8px;display:block"></i>Анализируем…</div>`;
+
+    try {
+        const r = await fetch('/api/v1/diff/objects', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({su_ids: _selectedSuIds}),
+        });
+        _objDiffData = await r.json();
+        if (!r.ok) { res.innerHTML = `<div style="color:#ef4444;padding:20px">${_esc(_objDiffData.error||'Ошибка')}</div>`; return; }
+        _renderObjDiff(_objDiffData);
+    } catch(e) {
+        res.innerHTML = `<div style="color:#ef4444;padding:20px">${_esc(String(e))}</div>`;
+    }
+}
+
+function _renderObjDiff(data) {
+    const info    = document.getElementById('objDiffInfo');
+    const typeF   = document.getElementById('objTypeFilter').value;
+    const showAll = document.getElementById('objShowFilter').value === 'all';
+    const suNames = data.su_names || {};
+    const s       = data.stats || {};
+
+    info.textContent = `Всего: ${s.total} | В синхронизации: ${s.in_sync} | Отсутствуют: ${s.missing}`;
+
+    let objects = data.objects || [];
+    if (typeF)    objects = objects.filter(o => o.category === typeF);
+    if (!showAll) objects = objects.filter(o => o.missing_on && o.missing_on.length > 0);
+
+    if (!objects.length) {
+        document.getElementById('objDiffResults').innerHTML =
+            `<div style="text-align:center;padding:40px;color:#22c55e;font-size:13px">
+                <i class="fas fa-circle-check" style="font-size:28px;display:block;margin-bottom:8px"></i>
+                Все объекты синхронизированы!</div>`;
+        return;
+    }
+
+    // Build source options for sync (unique СУ that have objects)
+    const allSrcIds = [...new Set(objects.map(o => o.source_su_id))];
+    const srcOptions = allSrcIds.map(id =>
+        `<option value="${_esc(id)}">${_esc(suNames[id]||id)}</option>`).join('');
+    const tgtOptions = _selectedSuIds.map(id =>
+        `<option value="${_esc(id)}">${_esc(suNames[id]||id)}</option>`).join('');
+
+    const rows = objects.map(o => {
+        const presentBadges = (o.present_on||[]).map(id =>
+            `<span style="background:rgba(34,197,94,.15);color:#4ade80;border-radius:4px;padding:1px 6px;font-size:10px;margin-right:3px">${_esc(suNames[id]||id)}</span>`).join('');
+        const missingBadges = (o.missing_on||[]).map(id =>
+            `<span style="background:rgba(239,68,68,.12);color:#f87171;border-radius:4px;padding:1px 6px;font-size:10px;margin-right:3px">${_esc(suNames[id]||id)}</span>`).join('');
+        const groupNote = o.is_group
+            ? `<span title="Члены группы должны быть синхронизированы первыми" style="color:#f59e0b;font-size:10px;margin-left:4px"><i class="fas fa-triangle-exclamation"></i></span>` : '';
+        return `<tr>
+            <td style="padding:5px 8px;width:28px">
+                <input type="checkbox" class="obj-chk" data-key="${_esc(o.key)}" data-src="${_esc(o.source_su_id)}" style="accent-color:#f59e0b">
+            </td>
+            <td style="padding:5px 8px;font-size:12px;font-weight:600;color:#e2e8f0">${_esc(o.name)}${groupNote}</td>
+            <td style="padding:5px 8px;font-size:11px;color:#94a3b8">${_esc(o.type)}</td>
+            <td style="padding:5px 8px">${presentBadges}</td>
+            <td style="padding:5px 8px">${missingBadges}</td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('objDiffResults').innerHTML = `
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,.06);border-radius:10px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)">
+                <span style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">
+                    <i class="fas fa-list me-2" style="color:#f59e0b"></i>${objects.length} объектов
+                </span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <label style="font-size:11px;color:#64748b;cursor:pointer">
+                        <input type="checkbox" onchange="toggleAllObjChk(this)" style="accent-color:#f59e0b"> Выбрать все
+                    </label>
+                    <div style="font-size:11px;color:#64748b">Источник:</div>
+                    <select id="syncSrcSu" class="diff-select" style="font-size:11px;padding:3px 8px">${srcOptions}</select>
+                    <div style="font-size:11px;color:#64748b">→ Цель:</div>
+                    <select id="syncTgtSu" class="diff-select" style="font-size:11px;padding:3px 8px">${tgtOptions}</select>
+                    <button onclick="syncSelected()"
+                            style="padding:5px 14px;border-radius:6px;border:none;background:#f59e0b;color:#000;
+                                   font-weight:700;font-size:11px;cursor:pointer">
+                        <i class="fas fa-arrow-right me-1"></i>Синхронизировать
+                    </button>
+                </div>
+            </div>
+            <div style="max-height:520px;overflow-y:auto">
+                <table style="width:100%;border-collapse:collapse">
+                    <thead><tr style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;position:sticky;top:0;background:#1e293b">
+                        <th style="padding:5px 8px;width:28px"></th>
+                        <th style="padding:5px 8px;text-align:left">Имя</th>
+                        <th style="padding:5px 8px;text-align:left">Тип</th>
+                        <th style="padding:5px 8px;text-align:left">Есть на</th>
+                        <th style="padding:5px 8px;text-align:left">Нет на</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+function toggleAllObjChk(master) {
+    document.querySelectorAll('.obj-chk').forEach(c => c.checked = master.checked);
+}
+
+async function syncSelected() {
+    const checked = [...document.querySelectorAll('.obj-chk:checked')];
+    if (!checked.length) { showToast('Выберите объекты для синхронизации', 'warning'); return; }
+    const srcSuId = document.getElementById('syncSrcSu').value;
+    const tgtSuId = document.getElementById('syncTgtSu').value;
+    if (!srcSuId || !tgtSuId) { showToast('Укажите источник и цель', 'warning'); return; }
+    if (srcSuId === tgtSuId)  { showToast('Источник и цель не должны совпадать', 'warning'); return; }
+
+    const keys = checked.map(c => c.dataset.key);
+    const btn = document.querySelector('#objDiffResults button[onclick="syncSelected()"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>Синхронизирую…'; }
+
+    try {
+        const r = await fetch('/api/v1/diff/objects/sync', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({keys, source_su_id: srcSuId, target_su_id: tgtSuId}),
+        });
+        const d = await r.json();
+        if (!r.ok) { showToast(d.error || 'Ошибка синхронизации', 'error'); return; }
+
+        showToast(`Синхронизировано: ${d.synced}${d.failed ? ` | Ошибки: ${d.failed}` : ''}`,
+                  d.failed ? 'warning' : 'success');
+
+        if (d.failed_objects && d.failed_objects.length) {
+            console.warn('Sync failures:', d.failed_objects);
+        }
+        await runObjDiff(); // refresh
+    } catch(e) {
+        showToast(String(e), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-arrow-right me-1"></i>Синхронизировать'; }
+    }
 }
 
 async function runDeviceDiff() {
@@ -401,6 +681,179 @@ function showToast(msg, type='success') {
     t.innerHTML = `<span>${msg}</span>`;
     stack.appendChild(t);
     setTimeout(() => t.remove(), 4000);
+}
+
+// ── Rule Sync ─────────────────────────────────────────────────────────────────
+
+const _RS_DEVICES = {{ devices | tojson }};  // [{device_id, name, su_id}, ...]
+let _rsDiffData = null;
+
+function rsPopulateDevices(side) {
+    const suId = document.getElementById(`rsSu${side}`).value;
+    const sel  = document.getElementById(`rsDev${side}`);
+    sel.innerHTML = suId
+        ? _RS_DEVICES
+            .filter(d => d.su_id === suId)
+            .map(d => `<option value="${_esc(d.device_id)}">${_esc(d.name)}</option>`)
+            .join('') || '<option value="">— нет устройств —</option>'
+        : '<option value="">— сначала выберите СУ —</option>';
+}
+
+async function runRuleSync() {
+    const devA = document.getElementById('rsDevA').value;
+    const devB = document.getElementById('rsDevB').value;
+    if (!devA || !devB) { showToast('Выберите оба устройства', 'warning'); return; }
+    if (devA === devB)  { showToast('Устройства должны отличаться', 'warning'); return; }
+
+    const res = document.getElementById('rsDiffResults');
+    res.innerHTML = `<div style="text-align:center;padding:40px;color:#64748b;font-size:13px">
+        <i class="fas fa-circle-notch fa-spin" style="font-size:24px;margin-bottom:8px;display:block"></i>Сравниваем правила…</div>`;
+    document.getElementById('rsDiffInfo').textContent = '';
+
+    try {
+        const r = await fetch('/api/v1/diff/devices', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({device_a: devA, device_b: devB}),
+        });
+        _rsDiffData = await r.json();
+        if (!r.ok) { res.innerHTML = `<div style="color:#ef4444;padding:20px">${_esc(_rsDiffData.error||'Ошибка')}</div>`; return; }
+        _renderRuleSyncResults(_rsDiffData, devB);
+    } catch(e) {
+        res.innerHTML = `<div style="color:#ef4444;padding:20px">${_esc(String(e))}</div>`;
+    }
+}
+
+function _renderRuleSyncResults(data, targetDevGid) {
+    const nameA = document.getElementById('rsDevA').options[document.getElementById('rsDevA').selectedIndex]?.text || 'A';
+    const nameB = document.getElementById('rsDevB').options[document.getElementById('rsDevB').selectedIndex]?.text || 'B';
+    const info  = document.getElementById('rsDiffInfo');
+
+    const onlyA = data.only_a || [];
+    const onlyB = data.only_b || [];
+    const changed = data.changed || [];
+
+    info.textContent = `A: ${data.total_a} правил · B: ${data.total_b} правил · Идентичных: ${data.identical}`;
+
+    if (!onlyA.length && !onlyB.length && !changed.length) {
+        document.getElementById('rsDiffResults').innerHTML =
+            `<div style="text-align:center;padding:48px;color:#22c55e;font-size:13px">
+                <i class="fas fa-circle-check" style="font-size:28px;display:block;margin-bottom:8px"></i>
+                Правила идентичны на обоих устройствах!</div>`;
+        return;
+    }
+
+    const actionColor = a => a === 'ALLOW' ? '#4ade80' : a === 'DENY' ? '#f87171' : '#94a3b8';
+
+    const buildTable = (rules, label, color, showCopy, tgtGid) => {
+        if (!rules.length) return '';
+        const rows = rules.map(r => `<tr>
+            ${showCopy ? `<td style="padding:5px 8px;width:28px"><input type="checkbox" class="rs-chk" data-id="${_esc(r.id||'')}" style="accent-color:#f59e0b"></td>` : '<td></td>'}
+            <td style="padding:5px 8px;font-size:12px;font-weight:600;color:#e2e8f0">${_esc(r.name)}</td>
+            <td style="padding:5px 8px;font-size:11px;color:${actionColor(r.action)}">${_esc(r.action)}</td>
+            <td style="padding:5px 8px;font-size:11px;color:#64748b">${_esc(r.folder||'')}</td>
+            <td style="padding:5px 8px;font-size:11px;color:${r.enabled?'#4ade80':'#64748b'}">${r.enabled?'вкл':'откл'}</td>
+        </tr>`).join('');
+
+        const copyBtn = showCopy ? `
+            <div style="display:flex;align-items:center;gap:8px">
+                <label style="font-size:11px;color:#64748b;cursor:pointer">
+                    <input type="checkbox" onchange="rsToggleAll(this)" style="accent-color:#f59e0b"> Выбрать все
+                </label>
+                <button onclick="rsCopySelected('${_esc(tgtGid)}')"
+                        style="padding:5px 14px;border-radius:6px;border:none;background:#f59e0b;
+                               color:#000;font-weight:700;font-size:11px;cursor:pointer">
+                    <i class="fas fa-arrow-right me-1"></i>Копировать в B
+                </button>
+            </div>` : '';
+
+        return `<div style="background:#1e293b;border:1px solid rgba(255,255,255,.06);border-left:3px solid ${color};border-radius:10px;overflow:hidden;margin-bottom:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)">
+                <span style="font-size:12px;font-weight:700;color:#e2e8f0">
+                    <i class="fas fa-list me-2" style="color:${color}"></i>${_esc(label)} — ${rules.length} правил
+                </span>
+                ${copyBtn}
+            </div>
+            <div style="max-height:380px;overflow-y:auto">
+                <table style="width:100%;border-collapse:collapse">
+                    <thead><tr style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;position:sticky;top:0;background:#1e293b">
+                        ${showCopy ? '<th style="padding:5px 8px;width:28px"></th>' : '<th></th>'}
+                        <th style="padding:5px 8px;text-align:left">Имя</th>
+                        <th style="padding:5px 8px;text-align:left">Действие</th>
+                        <th style="padding:5px 8px;text-align:left">Папка</th>
+                        <th style="padding:5px 8px;text-align:left">Статус</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </div>`;
+    };
+
+    document.getElementById('rsDiffResults').innerHTML =
+        buildTable(onlyA, `Только на A (${nameA}) — отсутствуют на B`, '#22c55e', true, targetDevGid) +
+        buildTable(onlyB, `Только на B (${nameB}) — отсутствуют на A`, '#ef4444', false, '') +
+        (changed.length ? `<div style="background:#1e293b;border:1px solid rgba(255,255,255,.06);border-left:3px solid #f59e0b;border-radius:10px;padding:12px 16px">
+            <span style="font-size:12px;font-weight:700;color:#fbbf24">
+                <i class="fas fa-pen-to-square me-2"></i>Отличаются: ${changed.length} правил
+            </span></div>` : '');
+}
+
+function rsToggleAll(master) {
+    document.querySelectorAll('.rs-chk').forEach(c => c.checked = master.checked);
+}
+
+async function rsCopySelected(targetDevGid, autoCreateFolders = false) {
+    const checked = [...document.querySelectorAll('.rs-chk:checked')];
+    if (!checked.length) { showToast('Выберите правила для копирования', 'warning'); return; }
+
+    const ruleIds = checked.map(c => c.dataset.id).filter(Boolean);
+    if (!ruleIds.length) { showToast('Нет ID правил для копирования', 'error'); return; }
+
+    const btn = document.querySelector('#rsDiffResults button[onclick*="rsCopySelected"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>Копирую…'; }
+
+    try {
+        const r = await fetch('/api/v1/diff/rules/bulk-copy', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                rule_ids: ruleIds,
+                target_device_group_id: targetDevGid,
+                auto_create_folders: autoCreateFolders,
+            }),
+        });
+        const d = await r.json();
+
+        if (!r.ok) {
+            if (r.status === 409 && d.error === 'no_folders') {
+                const confirmed = confirm(
+                    'На целевом устройстве нет папок для правил.\n\nСоздать папки по умолчанию (Pre/Post/Default) и продолжить копирование?'
+                );
+                if (confirmed) {
+                    await rsCopySelected(targetDevGid, true);
+                }
+            } else {
+                showToast(d.error || d.description || 'Ошибка копирования', 'error');
+            }
+            return;
+        }
+
+        const identical = (d.synced_rules || []).filter(r => r.rule_status === 'identical');
+        const renamed   = (d.synced_rules || []).filter(r => r.rule_status === 'renamed');
+        let msg = `Скопировано: ${d.synced}`;
+        if (d.failed)          msg += ` | Ошибки: ${d.failed}`;
+        if (identical.length)  msg += ` | Уже существует (пропущено): ${identical.map(r => r.name).join(', ')}`;
+        if (renamed.length)    msg += ` | Переименовано: ${renamed.map(r => `${r.original_name} → ${r.name}`).join(', ')}`;
+        const lvl = d.failed ? 'error' : (identical.length || renamed.length) ? 'warning' : 'success';
+        showToast(msg, lvl);
+
+        if (d.failed_rules?.length) console.warn('Copy failures:', d.failed_rules);
+        await runRuleSync();  // refresh
+    } catch(e) {
+        showToast(String(e), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-arrow-right me-1"></i>Копировать в B'; }
+    }
 }
 </script>
 {% endblock %}
