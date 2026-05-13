@@ -678,6 +678,7 @@ class RuleCreateRequest(BaseModel):
     ips_profile_id: str = ""
     av_profile_id: str = ""
     icap_profile_id: str = ""
+    block_id: str = ""
 
 class RuleUpdateRequest(BaseModel):
     rule_id: str
@@ -731,19 +732,157 @@ async def create_rule(request: Request, data: RuleCreateRequest, db: AsyncSessio
     _require_write(request)
     user = get_current_user(request)
     if not user: return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
-    
+
     client = NGFWClient(user['host'], verify_ssl=False)
     try:
         await client.login(user['username'], user['password'])
         from app.services.rule_creator import rule_creator
         payload = data.dict()
         await rule_creator.create_rule(db, client, payload)
-        return JSONResponse({"status": "ok"})
+
+        # If block_id provided, assign the new rule to that block
+        new_rule_id = None
+        if data.block_id:
+            stmt = (
+                select(CachedRule)
+                .where(CachedRule.folder_id == data.folder_id, CachedRule.name == data.name)
+                .order_by(CachedRule.folder_sort_order.desc())
+                .limit(1)
+            )
+            new_rule = (await db.execute(stmt)).scalar_one_or_none()
+            if new_rule:
+                new_rule.block_id = data.block_id
+                new_rule_id = new_rule.id
+                await db.commit()
+
+        return JSONResponse({"status": "ok", "rule_id": new_rule_id})
     except Exception as e:
         logger.error(f"Rule creation failed: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
     finally:
         await client.close()
+
+
+class ValidateBlockRequest(BaseModel):
+    src_ids: List[str] = []
+    dst_ids: List[str] = []
+    block_id: str
+    folder_id: str = ""
+
+
+@router.post("/api/v1/rules/validate-block")
+async def validate_rule_for_block(data: ValidateBlockRequest, db: AsyncSession = Depends(get_db)):
+    """Check if rule src/dst objects fall within the block subnet. Returns match + suggested block."""
+    import ipaddress as _ip
+
+    block = await db.get(RuleBlock, data.block_id)
+    if not block or not block.subnet:
+        return JSONResponse({"match": True, "reason": "no_subnet"})
+
+    subnet_raw = (block.subnet or "").strip()
+    try:
+        network = _ip.ip_network(subnet_raw, strict=False)
+    except ValueError:
+        return JSONResponse({"match": True, "reason": "invalid_subnet"})
+
+    # Recursively resolve object IDs to concrete IP addresses
+    resolved: list = []
+    seen_ids: set = set()
+
+    async def _collect(obj_id: str, depth: int = 0):
+        if depth > 5 or obj_id in seen_ids:
+            return
+        seen_ids.add(obj_id)
+
+        stmt = select(CachedObject).where(CachedObject.ext_id.in_([obj_id]))
+        obj = (await db.execute(stmt)).scalars().first()
+        if not obj and ":" in obj_id:
+            # Try without scope prefix
+            raw_id = obj_id.split(":", 1)[1]
+            stmt2 = select(CachedObject).where(CachedObject.ext_id.like(f"%:{raw_id}"))
+            obj = (await db.execute(stmt2)).scalars().first()
+        if not obj:
+            return
+
+        d = obj.data or {}
+        raw = d.get("_raw_debug") or {}
+
+        # Direct string IP/CIDR fields
+        for key in ("value", "inet", "ip", "address"):
+            v = d.get(key) or raw.get(key)
+            if v and isinstance(v, str):
+                try:
+                    resolved.append(_ip.ip_interface(v).ip)
+                    return
+                except ValueError:
+                    pass
+
+        # IP range — take start address
+        for key_s in ("start", "startIp", "from"):
+            v = d.get(key_s) or raw.get(key_s)
+            if v and isinstance(v, str):
+                try:
+                    resolved.append(_ip.ip_address(v))
+                    return
+                except ValueError:
+                    pass
+
+        # Nested value dict (e.g. {"inet": {"inet": "10.0.0.1/32"}})
+        val_d = d.get("value")
+        if isinstance(val_d, dict):
+            for _k, _v in val_d.items():
+                if isinstance(_v, dict):
+                    for _ik, _iv in _v.items():
+                        if isinstance(_iv, str):
+                            try:
+                                resolved.append(_ip.ip_interface(_iv).ip)
+                                return
+                            except ValueError:
+                                pass
+                elif isinstance(_v, str):
+                    try:
+                        resolved.append(_ip.ip_interface(_v).ip)
+                        return
+                    except ValueError:
+                        pass
+
+        # Group: recurse into members
+        members = d.get("members") or []
+        for mid in members:
+            await _collect(str(mid), depth + 1)
+
+    all_ids = list(dict.fromkeys(data.src_ids + data.dst_ids))
+    for oid in all_ids:
+        await _collect(oid)
+
+    match = bool(resolved) and any(ip in network for ip in resolved)
+
+    # If no match, scan other blocks in same folder for a suggestion
+    suggested = None
+    if not match and data.folder_id:
+        other_blocks_res = await db.execute(
+            select(RuleBlock).where(
+                RuleBlock.folder_id == data.folder_id,
+                RuleBlock.id != data.block_id,
+                RuleBlock.subnet != None,  # noqa: E711
+            ).order_by(RuleBlock.sort_order)
+        )
+        for other in other_blocks_res.scalars().all():
+            try:
+                other_net = _ip.ip_network((other.subnet or "").strip(), strict=False)
+                if resolved and any(ip in other_net for ip in resolved):
+                    suggested = {"id": other.id, "name": other.name, "subnet": other.subnet}
+                    break
+            except ValueError:
+                pass
+
+    return JSONResponse({
+        "match": match,
+        "block_name": block.name,
+        "block_subnet": subnet_raw,
+        "resolved_count": len(resolved),
+        "suggested_block": suggested,
+    })
 
 @router.get("/api/v1/object/resolve")
 async def api_resolve_object(ext_id: str = Query(...), device_group_id: str = Query(""), db: AsyncSession = Depends(get_db)):
@@ -1201,6 +1340,202 @@ async def transfer_rules(request: Request, data: TransferRequest, db: AsyncSessi
         if target_client_owned:
             await target_client.close()
 
+class ReverseRequest(BaseModel):
+    rule_ids: List[str]
+
+
+@router.post("/api/v1/rules/reverse")
+async def reverse_rules(request: Request, data: ReverseRequest, db: AsyncSession = Depends(get_db)):
+    """Create a reversed copy of each rule (src↔dst addr and zone swapped), disabled by default."""
+    _require_write(request)
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
+
+    from app.services.sync_service import _unscope
+    import uuid as _uuid
+
+    client = NGFWClient(user['host'], verify_ssl=False)
+    created_rules, failed_rules = [], []
+
+    def _extract_ids(field: dict) -> list:
+        """Extract raw UUID list from a stored SecurityRule field (objects may be wrapped dicts)."""
+        if not field:
+            return []
+        objects = field.get("objects") or {}
+        if isinstance(objects, dict):
+            objects = objects.get("array", [])
+        ids = []
+        for item in (objects if isinstance(objects, list) else []):
+            if isinstance(item, str):
+                ids.append(item)
+            elif isinstance(item, dict):
+                if "id" in item:
+                    ids.append(item["id"])
+                else:
+                    for v in item.values():
+                        if isinstance(v, dict) and "id" in v:
+                            ids.append(v["id"])
+                            break
+        # deduplicate, preserve order
+        seen: set = set()
+        return [x for x in ids if x not in seen and not seen.add(x)]
+
+    def _rebuild(field: dict, user_kind: bool = False) -> dict:
+        """Rebuild a field payload with clean UUID-only array (CreateSecurityRule format)."""
+        if not field:
+            return {"kind": "RULE_USER_KIND_ANY" if user_kind else "RULE_KIND_ANY", "objects": {"array": []}}
+        kind = field.get("kind", "")
+        if "ANY" in kind or not _extract_ids(field):
+            return {"kind": kind or ("RULE_USER_KIND_ANY" if user_kind else "RULE_KIND_ANY"), "objects": {"array": []}}
+        return {"kind": kind, "objects": {"array": _extract_ids(field)}}
+
+    try:
+        await client.login(user['username'], user['password'])
+
+        for rule_id in data.rule_ids:
+            rule = await db.get(CachedRule, rule_id)
+            if not rule:
+                failed_rules.append({"id": rule_id, "reason": "Правило не найдено"})
+                continue
+
+            folder = await db.get(Folder, rule.folder_id)
+            if not folder:
+                failed_rules.append({"name": rule.name, "reason": "Папка не найдена"})
+                continue
+
+            d = rule.data or {}
+            raw_dg_id = _unscope(folder.device_group_id)
+
+            prec_raw = (d.get("precedence") or folder.section or "pre").lower()
+            precedence = "post" if prec_raw == "post" else "pre"
+
+            base_rev_name = (d.get("name") or rule.name) + "_rev"
+
+            # Check if a rule with this name already exists in the same folder
+            existing_rev_res = await db.execute(
+                select(CachedRule).where(
+                    CachedRule.folder_id == rule.folder_id,
+                    CachedRule.name == base_rev_name,
+                )
+            )
+            existing_rev = existing_rev_res.scalars().first()
+
+            rev_src_ids  = frozenset(_extract_ids(d.get("destinationAddr") or {}))
+            rev_dst_ids  = frozenset(_extract_ids(d.get("sourceAddr") or {}))
+            rev_src_zone = frozenset(_extract_ids(d.get("destinationZone") or {}))
+            rev_dst_zone = frozenset(_extract_ids(d.get("sourceZone") or {}))
+            rev_svc_ids  = frozenset(_extract_ids(d.get("service") or {}))
+
+            if existing_rev:
+                ex_d = existing_rev.data or {}
+                ex_src  = frozenset(_extract_ids(ex_d.get("sourceAddr") or {}))
+                ex_dst  = frozenset(_extract_ids(ex_d.get("destinationAddr") or {}))
+                ex_sz   = frozenset(_extract_ids(ex_d.get("sourceZone") or {}))
+                ex_dz   = frozenset(_extract_ids(ex_d.get("destinationZone") or {}))
+                ex_svc  = frozenset(_extract_ids(ex_d.get("service") or {}))
+
+                is_identical = (
+                    ex_src == rev_src_ids and ex_dst == rev_dst_ids and
+                    ex_sz  == rev_src_zone and ex_dz  == rev_dst_zone and
+                    ex_svc == rev_svc_ids  and
+                    ex_d.get("action") == d.get("action")
+                )
+                if is_identical:
+                    created_rules.append({
+                        "name":        base_rev_name,
+                        "rule_status": "identical",
+                        "existing_id": existing_rev.ext_id,
+                    })
+                    continue
+                else:
+                    # Name conflict, different content — generate unique name
+                    rev_name = base_rev_name + "_copy"
+                    counter = 2
+                    while True:
+                        chk = await db.execute(
+                            select(CachedRule).where(
+                                CachedRule.folder_id == rule.folder_id,
+                                CachedRule.name == rev_name,
+                            )
+                        )
+                        if not chk.scalars().first():
+                            break
+                        rev_name = f"{base_rev_name}_copy{counter}"
+                        counter += 1
+                    rule_status = "renamed"
+            else:
+                rev_name = base_rev_name
+                rule_status = "created"
+
+            api_payload = {
+                "name":          rev_name,
+                "description":   d.get("description", ""),
+                "deviceGroupId": raw_dg_id,
+                "precedence":    precedence,
+                "position":      1,
+                "action":        d.get("action", "SECURITY_RULE_ACTION_ALLOW"),
+                "logMode":       d.get("logMode", "SECURITY_RULE_LOG_MODE_AT_RULE_HIT"),
+                "enabled":       False,
+                # ── swap src ↔ dst (rebuild with UUID-only arrays) ──────────
+                "sourceAddr":      _rebuild(d.get("destinationAddr")),
+                "destinationAddr": _rebuild(d.get("sourceAddr")),
+                "sourceZone":      _rebuild(d.get("destinationZone")),
+                "destinationZone": _rebuild(d.get("sourceZone")),
+                # ── keep the rest unchanged ─────────────────────────────────
+                "service":     _rebuild(d.get("service")),
+                "application": _rebuild(d.get("application")),
+                "urlCategory": _rebuild(d.get("urlCategory")),
+                "sourceUser":  _rebuild(d.get("sourceUser"), user_kind=True),
+            }
+
+            if d.get("ipsProfile"):
+                api_payload["ipsProfileId"] = (d["ipsProfile"] or {}).get("id", "")
+            if d.get("avProfile"):
+                api_payload["avProfileId"]  = (d["avProfile"]  or {}).get("id", "")
+            if d.get("icapProfile"):
+                api_payload["icapProfileId"] = (d["icapProfile"] or {}).get("id", "")
+
+            try:
+                res = await client.create_rule(api_payload)
+                new_raw_id = res.get("id")
+
+                full_data = await client.fetch_single_rule(new_raw_id, raw_dg_id, precedence) or res
+
+                su_prefix = folder.device_group_id.split(":", 1)[0] if ":" in folder.device_group_id else ""
+                scoped_ext_id = f"{su_prefix}:{new_raw_id}" if su_prefix else new_raw_id
+
+                db.add(CachedRule(
+                    id=str(_uuid.uuid4()),
+                    ext_id=scoped_ext_id,
+                    name=rev_name,
+                    folder_id=rule.folder_id,
+                    folder_sort_order=0,
+                    data=full_data,
+                ))
+                await _log_change(db, user, "create", "rule", rev_name, scoped_ext_id, folder.device_group_id,
+                                  f"Reverse of '{rule.name}'")
+                entry = {"name": rev_name, "rule_status": rule_status}
+                if rule_status == "renamed":
+                    entry["original_name"] = base_rev_name
+                    entry["existing_id"]   = existing_rev.ext_id if existing_rev else None
+                created_rules.append(entry)
+            except Exception as exc:
+                failed_rules.append({"name": rule.name, "reason": str(exc)[:300]})
+
+        await db.commit()
+    finally:
+        await client.close()
+
+    return JSONResponse({
+        "status":        "ok",
+        "created":       len(created_rules),
+        "failed":        len(failed_rules),
+        "created_rules": created_rules,
+        "failed_rules":  failed_rules,
+    })
+
+
 @router.post("/api/v1/rules/delete")
 async def delete_rules(request: Request, data: DeleteRequest, db: AsyncSession = Depends(get_db)):
     _require_write(request)
@@ -1395,16 +1730,39 @@ async def index(request: Request, folder_id: str = Query(None),
         rules_slice = rules_sorted[(page - 1) * page_size : page * page_size]
         rules_processed = [rule_to_dict(r, object_map, dg_id_for_tooltip) for r in rules_slice]
 
-        # Load blocks for this folder (for visual separators)
+        # Load blocks for this folder
         blocks_res = await db.execute(
             select(RuleBlock).where(RuleBlock.folder_id == target_folder.id)
             .order_by(RuleBlock.sort_order)
         )
-        folder_blocks = {b.id: {"name": b.name, "vlan": b.vlan_name, "subnet": b.subnet}
-                         for b in blocks_res.scalars().all()}
+        blocks_list = blocks_res.scalars().all()
 
-        dashboard_data.append({"folder": target_folder, "rules": rules_processed,
-                                "blocks": folder_blocks})
+        # Count rules per block across ALL folder rules (not just current page)
+        block_counts: dict = {}
+        unblocked_count = 0
+        for _r in target_folder.rules:
+            _bid = _r.block_id or ""
+            if _bid:
+                block_counts[_bid] = block_counts.get(_bid, 0) + 1
+            else:
+                unblocked_count += 1
+
+        folder_blocks = {
+            b.id: {
+                "name": b.name,
+                "vlan": b.vlan_name,
+                "subnet": b.subnet,
+                "rule_count": block_counts.get(b.id, 0),
+            }
+            for b in blocks_list
+        }
+
+        dashboard_data.append({
+            "folder": target_folder,
+            "rules": rules_processed,
+            "blocks": folder_blocks,
+            "unblocked_count": unblocked_count,
+        })
 
     filtered_tree = {k: v for k, v in tree.items() if not k.endswith(":global") and k != "global"}
     su_tree = await _build_su_tree(db, filtered_tree)
@@ -3763,11 +4121,16 @@ async def diff_page(request: Request, db: AsyncSession = Depends(get_db)):
     if spa: return spa
 
     meta_res = await db.execute(select(DeviceMeta))
-    devices = [{"device_id": d.device_id, "name": d.name or d.device_id}
+    devices = [{"device_id": d.device_id, "name": d.name or d.device_id, "su_id": d.su_id or ""}
                for d in meta_res.scalars().all() if d.device_id != "global"]
 
+    su_res = await db.execute(select(ManagementSystem).order_by(ManagementSystem.name))
+    su_list = [{"id": s.id, "name": s.name or s.host, "host": s.host}
+               for s in su_res.scalars().all()]
+
     return templates.TemplateResponse(request, "diff.html", base_ctx(request,
-        user=user, devices=devices, selected_folder_id=None, current_device_id=None, tree={},
+        user=user, devices=devices, su_list=su_list,
+        selected_folder_id=None, current_device_id=None, tree={},
     ))
 
 
@@ -3805,13 +4168,13 @@ async def diff_devices(data: DeviceDiffRequest, db: AsyncSession = Depends(get_d
     only_a = []
     for name in sorted(names_a - names_b):
         r = rules_a[name]
-        only_a.append({"name": name, "folder": r["folder"],
+        only_a.append({"id": r["id"], "name": name, "folder": r["folder"],
                         "action": r["sig"]["action"], "enabled": r["sig"]["enabled"]})
 
     only_b = []
     for name in sorted(names_b - names_a):
         r = rules_b[name]
-        only_b.append({"name": name, "folder": r["folder"],
+        only_b.append({"id": r["id"], "name": name, "folder": r["folder"],
                         "action": r["sig"]["action"], "enabled": r["sig"]["enabled"]})
 
     # Build object name lookup for both devices
@@ -3860,6 +4223,169 @@ async def diff_devices(data: DeviceDiffRequest, db: AsyncSession = Depends(get_d
         "only_b":    only_b,
         "changed":   changed,
         "identical": len(names_a & names_b) - len(changed),
+    })
+
+
+class ObjectDiffRequest(BaseModel):
+    su_ids: List[str]
+
+class ObjectSyncRequest(BaseModel):
+    keys:          List[str]
+    source_su_id:  str
+    target_su_id:  str
+
+@router.post("/api/v1/diff/objects")
+async def diff_objects(
+    request: Request,
+    data: ObjectDiffRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if len(data.su_ids) < 2:
+        return JSONResponse({"error": "Выберите минимум 2 СУ"}, status_code=400)
+    from app.services.object_sync_service import analyze_objects
+    result = await analyze_objects(db, data.su_ids)
+    return JSONResponse(result)
+
+
+@router.post("/api/v1/diff/objects/sync")
+async def sync_objects_endpoint(
+    request: Request,
+    data: ObjectSyncRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from app.services.object_sync_service import sync_objects
+    result = await sync_objects(db, data.keys, data.source_su_id, data.target_su_id)
+    return JSONResponse(result)
+
+
+class RuleBulkCopyRequest(BaseModel):
+    rule_ids:               List[str]
+    target_device_group_id: str   # scoped {su_id}:{uuid}
+    auto_create_folders:    bool = False
+
+
+@router.post("/api/v1/diff/rules/bulk-copy")
+async def diff_rules_bulk_copy(
+    request: Request,
+    data: RuleBulkCopyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    target_su_id = data.target_device_group_id.split(":", 1)[0] if ":" in data.target_device_group_id else None
+    if not target_su_id:
+        return JSONResponse({"error": "Некорректный target_device_group_id"}, status_code=400)
+
+    target_su = await db.get(ManagementSystem, target_su_id)
+    if not target_su:
+        return JSONResponse({"error": f"СУ {target_su_id} не найдена"}, status_code=400)
+
+    # Build section → folder_id map for target device
+    folders_res = await db.execute(
+        select(Folder).where(Folder.device_group_id == data.target_device_group_id)
+    )
+    target_folders = folders_res.scalars().all()
+    section_to_folder: dict = {}
+    fallback_folder_id = None
+    for f in target_folders:
+        sec = (f.section or "pre").lower()
+        if sec not in section_to_folder:
+            section_to_folder[sec] = f.id
+        if fallback_folder_id is None:
+            fallback_folder_id = f.id
+
+    if not section_to_folder:
+        if not data.auto_create_folders:
+            return JSONResponse({
+                "error":       "no_folders",
+                "description": "На целевом устройстве нет папок. Создать папки по умолчанию и продолжить?",
+            }, status_code=409)
+        # Auto-create default local folders for the target device group
+        target_su_res = await db.execute(
+            select(Folder).where(Folder.device_group_id == data.target_device_group_id)
+        )
+        if not target_su_res.scalars().first():
+            import uuid as _uuid
+            for sec in ("pre", "post", "default"):
+                db.add(Folder(
+                    id=str(_uuid.uuid4()),
+                    name=f"Policy {sec.upper()} (Default)",
+                    device_group_id=data.target_device_group_id,
+                    section=sec,
+                    sort_order=0,
+                    su_id=target_su_id,
+                ))
+            await db.flush()
+        folders_res2 = await db.execute(
+            select(Folder).where(Folder.device_group_id == data.target_device_group_id)
+        )
+        for f in folders_res2.scalars().all():
+            sec = (f.section or "pre").lower()
+            if sec not in section_to_folder:
+                section_to_folder[sec] = f.id
+            if fallback_folder_id is None:
+                fallback_folder_id = f.id
+
+    from app.protected.transfer_service import TransferService
+
+    client = NGFWClient(target_su.host, verify_ssl=False)
+    synced, failed = [], []
+
+    try:
+        await client.login(target_su.username, decrypt_pw(target_su.password_enc))
+
+        # Detect source su_id from first rule's folder
+        source_su_id = None
+        if data.rule_ids:
+            first_rule = await db.get(CachedRule, data.rule_ids[0])
+            if first_rule and first_rule.folder_id:
+                src_f = await db.get(Folder, first_rule.folder_id)
+                if src_f:
+                    source_su_id = src_f.su_id
+
+        svc = TransferService(db, client, source_su_id=source_su_id, target_su_id=target_su_id)
+
+        for rule_id in data.rule_ids:
+            rule = await db.get(CachedRule, rule_id)
+            if not rule:
+                failed.append({"id": rule_id, "reason": "Правило не найдено"})
+                continue
+
+            src_folder = await db.get(Folder, rule.folder_id) if rule.folder_id else None
+            src_section = (src_folder.section or "pre").lower() if src_folder else "pre"
+            target_folder_id = section_to_folder.get(src_section) or fallback_folder_id
+
+            try:
+                result = await svc.transfer_rule(rule_id, data.target_device_group_id, target_folder_id)
+                synced.append({
+                    "name":          rule.name,
+                    "conflicts":     result.get("conflicts", []),
+                    "rule_status":   result.get("rule_status", "created"),
+                    "existing_id":   result.get("existing_id"),
+                    "existing_name": result.get("existing_name"),
+                    "original_name": result.get("original_name"),
+                })
+            except Exception as e:
+                failed.append({"name": rule.name, "reason": str(e)[:300]})
+
+        await db.commit()
+    finally:
+        await client.close()
+
+    return JSONResponse({
+        "status":       "ok",
+        "synced":       len(synced),
+        "failed":       len(failed),
+        "synced_rules": synced,
+        "failed_rules": failed,
     })
 
 
@@ -4754,6 +5280,68 @@ class TemplateApplyRequest(BaseModel):
 
 class TemplateDeleteRequest(BaseModel):
     template_ids: List[str]
+
+
+@router.get("/api/v1/export/rules/json")
+async def export_rules_json(
+    request: Request,
+    device_group_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export all cached rules for a device as raw JSON (СУ format)."""
+    if not get_current_user(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    folders_res = await db.execute(
+        select(Folder)
+        .where(Folder.device_group_id == device_group_id)
+        .order_by(Folder.sort_order)
+    )
+    folders = folders_res.scalars().all()
+    folder_map = {f.id: f for f in folders}
+
+    rules_res = await db.execute(
+        select(CachedRule)
+        .where(CachedRule.folder_id.in_([f.id for f in folders]))
+        .order_by(CachedRule.folder_id, CachedRule.folder_sort_order)
+    )
+    rules = rules_res.scalars().all()
+
+    sections: dict = {"pre": [], "default": [], "post": []}
+    for rule in rules:
+        folder = folder_map.get(rule.folder_id)
+        section = (folder.section or "default") if folder else "default"
+        if section not in sections:
+            section = "default"
+        entry = rule.data or {}
+        entry["_meta"] = {
+            "folder_name":       folder.name if folder else None,
+            "folder_sort_order": rule.folder_sort_order,
+            "block_id":          rule.block_id,
+        }
+        sections[section].append(entry)
+
+    payload = {
+        "device_group_id": device_group_id,
+        "exported_at":     datetime.now(timezone.utc).isoformat(),
+        "total_rules":     len(rules),
+        "sections":        sections,
+    }
+
+    dev_res = await db.execute(
+        select(DeviceMeta).where(DeviceMeta.device_id == device_group_id)
+    )
+    dev = dev_res.scalar_one_or_none()
+    dev_name = (dev.name or device_group_id) if dev else device_group_id
+    filename = f"rules_{dev_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    filename = filename.replace(" ", "_").replace(":", "-")
+
+    content = json.dumps(payload, ensure_ascii=False, indent=2)
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{quote(filename)}"'},
+    )
 
 
 @router.get("/templates", response_class=HTMLResponse)

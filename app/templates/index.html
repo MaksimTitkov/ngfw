@@ -67,6 +67,11 @@
                        onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
                         <i class="fas fa-print" style="color:#a78bfa;width:14px"></i>Rules → Print / PDF
                     </a>
+                    <a href="#" onclick="exportRulesJson(event)"
+                       style="display:flex;align-items:center;gap:8px;padding:7px 14px;color:#e2e8f0;font-size:12px;text-decoration:none;transition:.15s"
+                       onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                        <i class="fas fa-database" style="color:#38bdf8;width:14px"></i>Rules → JSON (raw СУ)
+                    </a>
                     <hr style="border-color:rgba(255,255,255,.08);margin:4px 0">
                     <div style="padding:4px 12px 6px;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Import</div>
                     <a href="#" onclick="triggerYamlImport(event)"
@@ -134,25 +139,63 @@
                         </tr>
                     </thead>
                     <tbody class="sortable-rules" data-folder-id="{{ item.folder.id }}">
-                        {% set ns = namespace(last_block_id='__none__') %}
+                        {% set ns = namespace(last_block_id='__none__', shown_general=false) %}
                         {% for r in item.rules %}
-                        {# ── Block separator ── #}
+
+                        {# ── Block accordion header ── #}
                         {% if r.block_id and r.block_id != ns.last_block_id %}
                         {% set blk = item.blocks.get(r.block_id, {}) if item.blocks is defined else {} %}
-                        <tr class="block-separator-row" data-block-id="{{ r.block_id }}">
+                        <tr class="block-accordion-header" id="blkhdr_{{ r.block_id }}"
+                            data-block-id="{{ r.block_id }}" data-folder-id="{{ item.folder.id }}"
+                            onclick="toggleBlock('{{ r.block_id }}','{{ item.folder.id }}')">
                             <td colspan="13" style="padding:0;border:none">
-                                <div style="display:flex;align-items:center;gap:8px;padding:4px 10px 3px;
-                                            background:linear-gradient(90deg,rgba(59,130,246,.12),transparent);
-                                            border-left:3px solid #3b82f6;border-bottom:1px solid rgba(59,130,246,.15)">
-                                    <i class="fas fa-layer-group" style="color:#3b82f6;font-size:10px"></i>
-                                    <span style="font-size:11px;font-weight:700;color:#60a5fa">{{ blk.name or r.block_id }}</span>
-                                    {% if blk.subnet %}<span style="font-family:monospace;font-size:10px;color:#475569">{{ blk.subnet }}</span>{% endif %}
+                                <div class="blk-accordion-row">
+                                    <i class="fas fa-chevron-down blk-chevron" id="blkchev_{{ r.block_id }}"></i>
+                                    <i class="fas fa-layer-group" style="color:#3b82f6;font-size:11px;flex-shrink:0"></i>
+                                    <span class="blk-name">{{ blk.name or r.block_id }}</span>
+                                    {% if blk.subnet %}<span class="blk-subnet">{{ blk.subnet }}</span>{% endif %}
+                                    {% if blk.vlan %}<span class="blk-vlan">{{ blk.vlan }}</span>{% endif %}
+                                    <span class="blk-rule-count">{{ blk.rule_count or 0 }} rules</span>
+                                    {% if not is_ro %}
+                                    <button class="blk-add-btn"
+                                            onclick="event.stopPropagation();openCreateRuleInBlock('{{ item.folder.id }}','{{ current_device_id }}','{{ r.block_id }}','{{ (blk.name or r.block_id)|replace("'","\\'") }}','{{ blk.subnet or "" }}')"
+                                            title="Add rule to this block">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                    {% endif %}
                                 </div>
                             </td>
                         </tr>
                         {% set ns.last_block_id = r.block_id %}
                         {% endif %}
-                        <tr data-id="{{ r.id }}" data-ext-id="{{ r.ext_id or '' }}" {% if not is_ro %}ondblclick='openEditRule({{ r | tojson | safe }})'{% endif %}
+
+                        {# ── General section header (first unblocked rule) ── #}
+                        {% if not r.block_id and not ns.shown_general %}
+                        <tr class="block-accordion-header" id="blkhdr___none__"
+                            data-block-id="__none__" data-folder-id="{{ item.folder.id }}"
+                            onclick="toggleBlock('__none__','{{ item.folder.id }}')">
+                            <td colspan="13" style="padding:0;border:none">
+                                <div class="blk-accordion-row blk-accordion-general">
+                                    <i class="fas fa-chevron-down blk-chevron" id="blkchev___none__"></i>
+                                    <i class="fas fa-list-ul" style="color:#64748b;font-size:11px;flex-shrink:0"></i>
+                                    <span class="blk-name" style="color:#94a3b8">General</span>
+                                    <span class="blk-rule-count" style="color:#64748b">{{ item.unblocked_count or 0 }} rules</span>
+                                    {% if not is_ro %}
+                                    <button class="blk-add-btn blk-add-btn-muted"
+                                            onclick="event.stopPropagation();openCreateRule('{{ item.folder.id }}','{{ current_device_id }}')"
+                                            title="Add rule (no block)">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% set ns.shown_general = true %}
+                        {% endif %}
+
+                        <tr data-id="{{ r.id }}" data-ext-id="{{ r.ext_id or '' }}"
+                            data-block-member="{{ r.block_id or '__none__' }}"
+                            {% if not is_ro %}ondblclick='openEditRule({{ r | tojson | safe }})'{% endif %}
                             {% if r.is_modified %}data-modified="1"{% endif %}
                             {% if not r.enabled and r.is_modified %}style="opacity:.45;border-left:3px solid #f59e0b"
                             {% elif r.is_modified %}style="background:rgba(245,158,11,.07);border-left:3px solid #f59e0b"
@@ -323,6 +366,9 @@
     </button>
     <button class="btn-bulk light" onclick="openSaveTemplate()" title="Save selected rule as template" style="color:#f59e0b">
         <i class="fas fa-bookmark me-1"></i>Template
+    </button>
+    <button class="btn-bulk light" onclick="bulkReverse()" title="Create reversed copy (src↔dst swapped, disabled)">
+        <i class="fas fa-right-left me-1"></i>Reverse
     </button>
     <button class="btn-bulk red" onclick="bulkDelete()">
         <i class="fas fa-trash me-1"></i>Delete
@@ -730,6 +776,84 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+/* ── Block accordion ───────────────────────────────── */
+.blk-accordion-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 4px;
+    background: linear-gradient(90deg, rgba(59,130,246,.13), transparent);
+    border-left: 3px solid #3b82f6;
+    border-bottom: 1px solid rgba(59,130,246,.15);
+    cursor: pointer;
+    user-select: none;
+    transition: background .15s;
+}
+.blk-accordion-row:hover { background: linear-gradient(90deg, rgba(59,130,246,.22), transparent); }
+.blk-accordion-general {
+    background: linear-gradient(90deg, rgba(100,116,139,.1), transparent);
+    border-left-color: #64748b;
+}
+.blk-accordion-general:hover { background: linear-gradient(90deg, rgba(100,116,139,.18), transparent); }
+
+.blk-chevron {
+    font-size: 10px;
+    color: #60a5fa;
+    transition: transform .2s ease;
+    width: 10px;
+    flex-shrink: 0;
+}
+.blk-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: #60a5fa;
+}
+.blk-subnet {
+    font-family: monospace;
+    font-size: 10px;
+    color: #475569;
+    background: rgba(59,130,246,.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+.blk-vlan {
+    font-size: 10px;
+    color: #64748b;
+    background: rgba(255,255,255,.05);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+.blk-rule-count {
+    font-size: 10px;
+    color: #64748b;
+    margin-left: auto;
+}
+.blk-add-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid rgba(59,130,246,.4);
+    background: rgba(59,130,246,.1);
+    color: #60a5fa;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background .15s, border-color .15s;
+}
+.blk-add-btn:hover { background: rgba(59,130,246,.25); border-color: #3b82f6; }
+.blk-add-btn-muted {
+    border-color: rgba(100,116,139,.3);
+    background: rgba(100,116,139,.08);
+    color: #64748b;
+}
+.blk-add-btn-muted:hover { background: rgba(100,116,139,.18); border-color: #64748b; color: #94a3b8; }
+
+.block-accordion-header { border: none !important; }
+</style>
 <script>
 'use strict';
 
@@ -737,6 +861,15 @@
    GLOBALS
    ===================================================== */
 const currentDeviceId = document.getElementById('current_device_id').value;
+
+// Block accordion state (set by template)
+const _folderBlocksMap = {{ (dashboard_data[0].blocks if dashboard_data else {}) | tojson | safe }};
+const _currentFolderId = "{{ (dashboard_data[0].folder.id if dashboard_data else '') }}";
+
+// Track which block the current create-rule dialog targets
+let _createBlockId   = '';
+let _createBlockName = '';
+let _createBlockSubnet = '';
 
 // Picker instances
 let pkSrcZone, pkDstZone, pkSrcNet, pkDstNet, pkService, pkApp, pkUrlCat, pkUser;
@@ -780,6 +913,116 @@ document.addEventListener('mouseover', e => {
     if (!row) return;
     acknowledgeRule(row.dataset.id, null);
 }, false);
+
+/* =====================================================
+   BLOCK ACCORDION
+   ===================================================== */
+function toggleBlock(blockId, folderId) {
+    const key = `blk_${folderId}_${blockId}`;
+    const chevron = document.getElementById(`blkchev_${blockId}`);
+    const rows = document.querySelectorAll(`tr[data-block-member="${blockId}"]`);
+    const isCollapsed = sessionStorage.getItem(key) === '1';
+
+    if (isCollapsed) {
+        rows.forEach(r => { r.style.display = ''; });
+        if (chevron) chevron.style.transform = 'rotate(0deg)';
+        sessionStorage.removeItem(key);
+    } else {
+        rows.forEach(r => { r.style.display = 'none'; });
+        if (chevron) chevron.style.transform = 'rotate(-90deg)';
+        sessionStorage.setItem(key, '1');
+    }
+}
+
+function _restoreBlockStates() {
+    document.querySelectorAll('.block-accordion-header').forEach(hdr => {
+        const blockId  = hdr.dataset.blockId;
+        const folderId = hdr.dataset.folderId;
+        if (!blockId || !folderId) return;
+        if (sessionStorage.getItem(`blk_${folderId}_${blockId}`) === '1') {
+            document.querySelectorAll(`tr[data-block-member="${blockId}"]`).forEach(r => {
+                r.style.display = 'none';
+            });
+            const chevron = document.getElementById(`blkchev_${blockId}`);
+            if (chevron) chevron.style.transform = 'rotate(-90deg)';
+        }
+    });
+}
+
+async function openCreateRuleInBlock(folderId, deviceId, blockId, blockName, blockSubnet) {
+    _createBlockId     = blockId;
+    _createBlockName   = blockName || '';
+    _createBlockSubnet = blockSubnet || '';
+
+    document.getElementById('ruleModalTitle').textContent = 'New Rule';
+    const sub = blockName
+        ? `Block: ${blockName}${blockSubnet ? ' (' + blockSubnet + ')' : ''}`
+        : '';
+    document.getElementById('ruleModalSub').textContent = sub;
+    document.getElementById('rm_folder_id').value = folderId;
+    document.getElementById('rm_save_label').textContent = 'Create Rule';
+    _resetModal(true);   // pass true to keep _createBlock* intact
+
+    await Promise.all([
+        _initPickers(deviceId || currentDeviceId),
+        _loadProfiles(deviceId || currentDeviceId),
+    ]);
+    getRuleModal().show();
+    setTimeout(() => document.getElementById('rm_name').focus(), 300);
+}
+
+// Block-mismatch warning overlay — returns Promise<blockId|''|null>
+function _showBlockMismatchWarning(vData) {
+    return new Promise(resolve => {
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:10000';
+
+        const suggestBtn = vData.suggested_block ? `
+            <button onclick="window.__resBlk('${vData.suggested_block.id}')"
+                style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(59,130,246,.4);
+                       background:rgba(59,130,246,.08);color:#60a5fa;font-size:13px;cursor:pointer;text-align:left;margin-bottom:6px">
+                <i class="fas fa-arrow-right" style="margin-right:8px;color:#3b82f6"></i>
+                Move to <b>${vData.suggested_block.name}</b>
+                <span style="font-family:monospace;font-size:11px;color:#475569;margin-left:6px">${vData.suggested_block.subnet}</span>
+            </button>` : '';
+
+        ov.innerHTML = `
+            <div style="background:#1e293b;border:1px solid rgba(245,158,11,.35);border-radius:12px;
+                        padding:24px;width:430px;max-width:95vw;box-shadow:0 24px 60px rgba(0,0,0,.6)">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                    <i class="fas fa-triangle-exclamation" style="color:#f59e0b;font-size:20px"></i>
+                    <span style="font-size:15px;font-weight:700;color:#e2e8f0">Block mismatch</span>
+                </div>
+                <p style="font-size:13px;color:#94a3b8;margin-bottom:18px">
+                    Source/destination does not match subnet of block
+                    <b style="color:#e2e8f0">${vData.block_name}</b>
+                    ${vData.block_subnet ? `<code style="color:#60a5fa;font-size:11px;margin-left:4px">(${vData.block_subnet})</code>` : ''}.
+                </p>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                    ${suggestBtn}
+                    <button onclick="window.__resBlk('${_createBlockId}')"
+                        style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
+                               background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;text-align:left">
+                        <i class="fas fa-check" style="margin-right:8px;color:#64748b"></i>
+                        Add to <b style="color:#e2e8f0">${vData.block_name}</b> anyway
+                    </button>
+                    <button onclick="window.__resBlk('')"
+                        style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
+                               background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;text-align:left">
+                        <i class="fas fa-inbox" style="margin-right:8px;color:#64748b"></i>
+                        Add to <b style="color:#e2e8f0">General</b> (no block)
+                    </button>
+                    <button onclick="window.__resBlk(null)"
+                        style="width:100%;padding:8px;border:none;background:transparent;
+                               color:#475569;font-size:12px;cursor:pointer">
+                        Cancel
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(ov);
+        window.__resBlk = result => { ov.remove(); delete window.__resBlk; resolve(result); };
+    });
+}
 
 /* =====================================================
    SYNC & DEPLOY
@@ -1271,6 +1514,45 @@ async function bulkDelete() {
 }
 
 /* =====================================================
+   REVERSE RULES
+   ===================================================== */
+async function bulkReverse() {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!await confirmDialog(
+        'Reverse Rules',
+        `Create reversed ${ids.length > 1 ? ids.length + ' rules' : 'rule'} (src↔dst swapped)?<br><small style="color:#94a3b8">Reversed rules will be created <b>disabled</b> at the top of the folder.</small>`,
+        'Create'
+    )) return;
+    showLoading('Creating reversed rules…');
+    try {
+        const r = await fetch('/api/v1/rules/reverse', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rule_ids: ids}),
+        });
+        const d = await r.json();
+        hideLoading();
+        if (!r.ok || d.status === 'error') {
+            showToast(d.message || 'Error creating reversed rules', 'error');
+            return;
+        }
+        const identical = (d.created_rules || []).filter(r => r.rule_status === 'identical');
+        const renamed   = (d.created_rules || []).filter(r => r.rule_status === 'renamed');
+        let msg = `Создано: ${d.created}`;
+        if (d.failed) msg += ` | Ошибки: ${d.failed}`;
+        if (identical.length) msg += ` | Уже существует (пропущено): ${identical.map(r => r.name).join(', ')}`;
+        if (renamed.length)   msg += ` | Переименовано (конфликт имени): ${renamed.map(r => `${r.original_name} → ${r.name}`).join(', ')}`;
+        const level = d.failed ? 'error' : (identical.length || renamed.length) ? 'warning' : 'success';
+        showToast(msg, level);
+        setTimeout(() => location.reload(), 800);
+    } catch(e) {
+        hideLoading();
+        showToast('Reverse error: ' + e.message, 'error');
+    }
+}
+
+/* =====================================================
    CREATE FOLDER
    ===================================================== */
 function openCreateFolder(gid) {
@@ -1297,7 +1579,12 @@ function setActionSilent(a) {
     });
 }
 
-function _resetModal() {
+function _resetModal(keepBlock) {
+    if (!keepBlock) {
+        _createBlockId     = '';
+        _createBlockName   = '';
+        _createBlockSubnet = '';
+    }
     document.getElementById('rm_rule_id').value = '';
     document.getElementById('rm_name').value = '';
     document.getElementById('rm_description').value = '';
@@ -1385,7 +1672,7 @@ async function openCreateRule(folderId, deviceId) {
     document.getElementById('ruleModalSub').textContent = '';
     document.getElementById('rm_folder_id').value = folderId;
     document.getElementById('rm_save_label').textContent = 'Create Rule';
-    _resetModal();
+    _resetModal(false);   // clears _createBlockId
 
     await Promise.all([
         _initPickers(deviceId || currentDeviceId),
@@ -1469,6 +1756,37 @@ async function submitRule() {
         payload.rule_id = ruleId;
     } else {
         payload.folder_id = folderId;
+
+        // Block validation on create
+        if (_createBlockId) {
+            const srcIds = pkSrcNet ? pkSrcNet.getSelectedIds() : [];
+            const dstIds = pkDstNet ? pkDstNet.getSelectedIds() : [];
+
+            if (srcIds.length || dstIds.length) {
+                try {
+                    const vRes = await fetch('/api/v1/rules/validate-block', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            src_ids: srcIds,
+                            dst_ids: dstIds,
+                            block_id: _createBlockId,
+                            folder_id: folderId,
+                        })
+                    });
+                    const vData = await vRes.json();
+                    if (!vData.match && vData.reason !== 'no_subnet' && vData.reason !== 'invalid_subnet') {
+                        const choice = await _showBlockMismatchWarning(vData);
+                        if (choice === null) return;   // user cancelled
+                        _createBlockId = choice;       // '' = General, or suggested block id
+                    }
+                } catch (e) {
+                    console.warn('Block validation error (proceeding):', e);
+                }
+            }
+
+            payload.block_id = _createBlockId;
+        }
     }
 
     const endpoint = isEdit ? '/api/v1/rules/update' : '/api/v1/rules/create';
@@ -1497,6 +1815,9 @@ async function submitRule() {
 
 /* Allow Enter in rule name to submit */
 document.getElementById('rm_name').addEventListener('keydown', e => { if (e.key === 'Enter') submitRule(); });
+
+/* Restore accordion collapsed states from sessionStorage */
+_restoreBlockStates();
 
 /* =====================================================
    QUICK CREATE OBJECT (inline from picker)
@@ -1665,6 +1986,14 @@ function exportHtmlReport(e) {
     const devId = document.getElementById('current_device_id').value;
     if (!devId) { showToast('Select a device first (sync a folder)', 'warning'); return; }
     window.open(`/api/v1/export/rules/html?device_group_id=${encodeURIComponent(devId)}`, '_blank');
+}
+
+function exportRulesJson(e) {
+    e.preventDefault();
+    document.getElementById('exportDDMenu').style.display = 'none';
+    const devId = document.getElementById('current_device_id').value;
+    if (!devId) { showToast('Select a device first', 'warning'); return; }
+    window.location = `/api/v1/export/rules/json?device_group_id=${encodeURIComponent(devId)}`;
 }
 
 function triggerYamlImport(e) {
