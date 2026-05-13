@@ -88,7 +88,7 @@
             {% endfor %}
 
         {% elif active_sec == 'dash' %}
-            {% for href, label in [('/dashboard', 'Overview'), ('/analyzer', 'Analyzer'), ('/changelog', 'Changes'), ('/diff', 'Diff')] %}
+            {% for href, label in [('/dashboard', 'Overview'), ('/analyzer', 'Analyzer'), ('/changelog', 'Changes'), ('/diff', 'Diff'), ('/import/checkpoint', 'Import')] %}
             <a href="{{ href }}"
                style="flex:1;text-align:center;padding:3px 2px;font-size:9px;font-weight:700;text-decoration:none;
                       {% if path == href %}color:#93c5fd;border-bottom:2px solid #3b82f6;{% else %}color:#374151;border-bottom:2px solid transparent;{% endif %}">

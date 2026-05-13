@@ -5115,6 +5115,369 @@ async def import_folders_yaml(
     })
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  CHECKPOINT IMPORT
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/import/checkpoint", response_class=HTMLResponse)
+async def checkpoint_import_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    su_list_res = await db.execute(select(ManagementSystem).order_by(ManagementSystem.name))
+    su_list = su_list_res.scalars().all()
+    devices_res = await db.execute(select(DeviceMeta).order_by(DeviceMeta.name))
+    devices = [{"device_group_id": d.device_id, "name": d.name, "su_id": d.su_id}
+               for d in devices_res.scalars().all()]
+    return templates.TemplateResponse(request, "import_checkpoint.html", base_ctx(request,
+        user=user, su_list=su_list, devices=devices,
+    ))
+
+
+@router.post("/api/v1/import/checkpoint/preview")
+async def checkpoint_preview(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from app.services.checkpoint_parser import parse_html
+    html = (await file.read()).decode("utf-8", errors="replace")
+    plan = parse_html(html)
+    # Return only stats + folder list (without full rule detail) for preview
+    preview_folders = []
+    for f in plan["folders"]:
+        preview_folders.append({
+            "name":           f["name"],
+            "block_count":    len(f["blocks"]),
+            "unblocked":      len(f["unblocked_rules"]),
+            "total_rules":    len(f["unblocked_rules"]) + sum(len(b["rules"]) for b in f["blocks"]),
+            "blocks":         [{"name": b["name"], "rule_count": len(b["rules"])} for b in f["blocks"]],
+        })
+    return JSONResponse({"stats": plan["stats"], "folders": preview_folders})
+
+
+@router.post("/api/v1/import/checkpoint/run")
+async def checkpoint_run(
+    request: Request,
+    file: UploadFile = File(...),
+    device_group_id: str = Form(...),
+    section: str = Form("pre"),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_write(request)
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    from app.services.checkpoint_parser import parse_html, KNOWN_SERVICES, SKIP_NAMES
+    from app.services.sync_service import _unscope
+
+    html = (await file.read()).decode("utf-8", errors="replace")
+    plan = parse_html(html)
+
+    client = NGFWClient(user["host"], verify_ssl=False)
+    log: list[str] = []
+    ok = lambda msg: log.append(f"[OK] {msg}")
+    warn = lambda msg: log.append(f"[WARN] {msg}")
+    err = lambda msg: log.append(f"[ERR] {msg}")
+
+    raw_dg_id = _unscope(device_group_id)
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    async def _find_cached_obj(name: str, category: str) -> str | None:
+        res = await db.execute(
+            select(CachedObject).where(
+                CachedObject.name == name,
+                CachedObject.category == category,
+                CachedObject.device_group_id == device_group_id,
+            ).limit(1)
+        )
+        obj = res.scalars().first()
+        return obj.ext_id if obj else None
+
+    async def _cache_obj(ext_id: str, name: str, type_lbl: str, cat: str, data: dict):
+        db.add(CachedObject(
+            ext_id=ext_id, name=name, type=type_lbl,
+            category=cat, device_group_id=device_group_id, data=data,
+        ))
+
+    # ── step 1: collect all object & service names used in rules ─────────────
+    needed_services: set[str] = set()
+    needed_objects:  set[str] = set()
+    for folder in plan["folders"]:
+        all_rules = folder["unblocked_rules"] + [r for b in folder["blocks"] for r in b["rules"]]
+        for rule in all_rules:
+            for sn in rule["services"]:
+                if sn.lower() not in ("any", ""):
+                    needed_services.add(sn)
+            for on in rule["source"] + rule["destination"]:
+                if on.lower() not in SKIP_NAMES:
+                    needed_objects.add(on)
+
+    ok(f"Collecting: {len(needed_services)} services, {len(needed_objects)} network objects")
+
+    # ── step 2: resolve / create services → name→ext_id ─────────────────────
+    svc_map: dict[str, str] = {}
+    try:
+        await client.login(user["username"], user["password"])
+
+        for svc_name in sorted(needed_services):
+            cached = await _find_cached_obj(svc_name, "service")
+            if cached:
+                svc_map[svc_name] = cached
+                continue
+
+            # Determine port info
+            svc_key = svc_name.lower()
+            if svc_key in KNOWN_SERVICES:
+                proto, port_from, port_to = KNOWN_SERVICES[svc_key]
+            elif svc_name in plan["services"]:
+                parsed_ports = plan["services"][svc_name]["ports"]
+                proto, port_from, port_to = 6, 0, 0
+                for p in parsed_ports:
+                    p = p.strip()
+                    m = re.match(r'^(TCP|UDP)\s+(\d+)(?:-(\d+))?$', p, re.IGNORECASE)
+                    if m:
+                        proto = 6 if m.group(1).upper() == "TCP" else 17
+                        port_from = int(m.group(2))
+                        port_to = int(m.group(3)) if m.group(3) else port_from
+                        break
+                if port_from == 0:
+                    warn(f"Service {svc_name!r}: cannot parse ports {parsed_ports}, skipping")
+                    continue
+            else:
+                warn(f"Service {svc_name!r}: unknown, skipping")
+                continue
+
+            try:
+                if port_from == port_to:
+                    ports_payload = [{"singlePort": {"port": port_from}}]
+                else:
+                    ports_payload = [{"portRange": {"from": port_from, "to": port_to}}]
+                payload: dict = {"name": svc_name, "deviceGroupId": raw_dg_id, "protocol": proto}
+                if proto not in (1, 89):
+                    payload["dstPorts"] = ports_payload
+                res = await client.create_service(payload)
+                ext_id = res.get("id") or (list(res.values())[0].get("id") if res else None)
+                if ext_id:
+                    svc_map[svc_name] = ext_id
+                    await _cache_obj(ext_id, svc_name, "Service", "service", res)
+                    ok(f"Service created: {svc_name}")
+                else:
+                    warn(f"Service {svc_name!r}: no ID returned")
+            except Exception as e:
+                warn(f"Service {svc_name!r}: {e}")
+
+        await db.commit()
+
+        # ── step 3: resolve / create network objects ─────────────────────────
+        obj_map: dict[str, str] = {}
+
+        # Sort so that individual objects are created before groups
+        def _obj_sort_key(name: str) -> int:
+            obj = plan["objects"].get(name, {})
+            return 1 if obj.get("type") == "group" else 0
+
+        for obj_name in sorted(needed_objects, key=_obj_sort_key):
+            cached = await _find_cached_obj(obj_name, "net")
+            if cached:
+                obj_map[obj_name] = cached
+                continue
+
+            obj_info = plan["objects"].get(obj_name)
+            if not obj_info:
+                warn(f"Object {obj_name!r}: not in objects table, skipping")
+                continue
+
+            values = obj_info["values"]
+            obj_type = obj_info["type"]
+
+            try:
+                if obj_type == "group":
+                    member_ids = []
+                    for val in values:
+                        mid = obj_map.get(val)
+                        if not mid:
+                            mid = await _find_cached_obj(val, "net")
+                        if not mid:
+                            # create inline member
+                            try:
+                                if "/" in val:
+                                    r2 = await client.create_network_object({
+                                        "name": val, "deviceGroupId": raw_dg_id,
+                                        "value": {"inet": {"inet": val}}})
+                                else:
+                                    r2 = await client.create_network_object({
+                                        "name": val, "deviceGroupId": raw_dg_id,
+                                        "value": {"inet": {"inet": val}}})
+                                mid = r2.get("id")
+                                if mid:
+                                    obj_map[val] = mid
+                                    await _cache_obj(mid, val, "Host/Network", "net", r2)
+                            except Exception:
+                                pass
+                        if mid:
+                            member_ids.append(mid)
+                    if not member_ids:
+                        warn(f"Group {obj_name!r}: no members resolved")
+                        continue
+                    res = await client.create_network_object_group({
+                        "name": obj_name, "deviceGroupId": raw_dg_id, "items": member_ids})
+                    ext_id = res.get("id")
+                    type_lbl = "Network Group"
+
+                elif obj_type == "range":
+                    val = values[0]
+                    parts = val.split("-")
+                    res = await client.create_network_object({
+                        "name": obj_name, "deviceGroupId": raw_dg_id,
+                        "value": {"ipRange": {"start": parts[0].strip(), "end": parts[1].strip()}}})
+                    ext_id = res.get("id")
+                    type_lbl = "Host/Network"
+
+                else:  # host or network
+                    val = values[0] if values else obj_name
+                    res = await client.create_network_object({
+                        "name": obj_name, "deviceGroupId": raw_dg_id,
+                        "value": {"inet": {"inet": val}}})
+                    ext_id = res.get("id")
+                    type_lbl = "Host/Network"
+
+                if ext_id:
+                    obj_map[obj_name] = ext_id
+                    await _cache_obj(ext_id, obj_name, type_lbl, "net", res)
+                    ok(f"Object created: {obj_name}")
+                else:
+                    warn(f"Object {obj_name!r}: no ID returned")
+            except Exception as e:
+                warn(f"Object {obj_name!r}: {e}")
+
+        await db.commit()
+
+        # ── step 4: find trust / untrust zone IDs ────────────────────────────
+        zones_res = await db.execute(
+            select(CachedObject).where(
+                CachedObject.category == "zone",
+                CachedObject.device_group_id == device_group_id,
+            )
+        )
+        zones = {z.name.lower(): z.ext_id for z in zones_res.scalars().all()}
+        trust_id   = zones.get("trust")
+        untrust_id = zones.get("untrust")
+        if not trust_id:
+            warn("Zone 'trust' not found in cache — zone IDs will be empty")
+        if not untrust_id:
+            warn("Zone 'untrust' not found in cache — zone IDs will be empty")
+
+        # ── step 5: create folders + blocks + rules ───────────────────────────
+        from app.services.rule_creator import rule_creator
+
+        rules_ok = rules_fail = 0
+
+        for folder_plan in plan["folders"]:
+            # Create virtual folder
+            folder_id = str(uuid.uuid4())
+            db.add(Folder(
+                id=folder_id,
+                name=folder_plan["name"],
+                device_group_id=device_group_id,
+                section=section,
+                sort_order=0,
+                su_id=device_group_id.split(":")[0] if ":" in device_group_id else "",
+            ))
+            await db.flush()
+
+            # Create blocks for this folder
+            block_id_map: dict[str, str] = {}
+            for block_plan in folder_plan["blocks"]:
+                block_id = str(uuid.uuid4())
+                db.add(RuleBlock(
+                    id=block_id,
+                    folder_id=folder_id,
+                    name=block_plan["name"],
+                    vlan_name=block_plan["name"],
+                    subnet="",
+                    sort_order=0,
+                ))
+                block_id_map[block_plan["name"]] = block_id
+
+            await db.flush()
+
+            # Collect all rules for this folder (unblocked + blocked)
+            all_rules_for_folder = [
+                (r, None) for r in folder_plan["unblocked_rules"]
+            ] + [
+                (r, block_plan["name"])
+                for block_plan in folder_plan["blocks"]
+                for r in block_plan["rules"]
+            ]
+
+            for rule, block_name in all_rules_for_folder:
+                src_ids  = [obj_map[n] for n in rule["source"]      if n in obj_map]
+                dst_ids  = [obj_map[n] for n in rule["destination"]  if n in obj_map]
+                svc_ids  = [svc_map[n] for n in rule["services"]     if n in svc_map]
+                src_zone = [trust_id]   if rule["src_zone"] == "trust"   and trust_id   else \
+                           [untrust_id] if rule["src_zone"] == "untrust" and untrust_id else []
+                dst_zone = [trust_id]   if rule["dst_zone"] == "trust"   and trust_id   else \
+                           [untrust_id] if rule["dst_zone"] == "untrust" and untrust_id else []
+
+                bid = block_id_map.get(block_name) if block_name else ""
+
+                try:
+                    payload = {
+                        "folder_id":       folder_id,
+                        "name":            rule["name"],
+                        "action":          rule["action"],
+                        "source_ids":      src_ids,
+                        "dest_ids":        dst_ids,
+                        "service_ids":     svc_ids,
+                        "source_zone_ids": src_zone,
+                        "dst_zone_ids":    dst_zone,
+                        "app_ids":         [],
+                        "url_cat_ids":     [],
+                        "user_ids":        [],
+                        "ips_profile_id":  "",
+                        "av_profile_id":   "",
+                        "icap_profile_id": "",
+                        "block_id":        bid or "",
+                    }
+                    await rule_creator.create_rule(db, client, payload)
+
+                    if bid:
+                        new_rule_res = await db.execute(
+                            select(CachedRule)
+                            .where(CachedRule.folder_id == folder_id,
+                                   CachedRule.name == rule["name"])
+                            .order_by(CachedRule.folder_sort_order.desc())
+                            .limit(1)
+                        )
+                        new_rule = new_rule_res.scalars().first()
+                        if new_rule:
+                            new_rule.block_id = bid
+
+                    rules_ok += 1
+                except Exception as e:
+                    err(f"Rule {rule['name']!r}: {e}")
+                    rules_fail += 1
+
+            await db.commit()
+            ok(f"Folder done: {folder_plan['name']} ({len(all_rules_for_folder)} rules)")
+
+    except Exception as e:
+        err(f"Fatal: {e}")
+    finally:
+        await client.close()
+
+    return JSONResponse({
+        "status":      "ok",
+        "rules_ok":    rules_ok,
+        "rules_fail":  rules_fail,
+        "log":         log,
+    })
+
+
 @router.get("/api/v1/export/rules/html")
 async def export_rules_html(
     request: Request,
